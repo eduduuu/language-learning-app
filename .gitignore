@@ -1,0 +1,16 @@
+# Secret Environment Variables
+.env
+
+# Python Environments & Cache
+.venv/
+venv/
+__pycache__/
+*.pyc
+
+# Node Modules
+node_modules/
+frontend/node_modules/
+
+# Local testing books
+*.epub
+*.pdf
