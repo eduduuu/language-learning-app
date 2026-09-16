@@ -8,7 +8,7 @@ from bs4 import BeautifulSoup
 import fugashi
 from dotenv import load_dotenv
 from openai import OpenAI
-from tenacity import retry, stop_after_attempt, wait_fixed
+from tenacity import retry, stop_after_attempt, wait_exponential
 
 load_dotenv()
 
@@ -48,7 +48,7 @@ def extract_vocabulary(japanese_text: str) -> list[str]:
             
     return list(vocab_set)
 
-@retry(stop=stop_after_attempt(3), wait=wait_fixed(2))
+@retry(stop=stop_after_attempt(4), wait=wait_exponential(multiplier=2, min=4, max=20))
 def generate_single_flashcard(
     vocab_list: list[str],
     target_words_count: int = 2,
@@ -123,7 +123,7 @@ def generate_single_flashcard(
     
     return response.choices[0].message.content
 
-@retry(stop=stop_after_attempt(3), wait=wait_fixed(2))
+@retry(stop=stop_after_attempt(4), wait=wait_exponential(multiplier=2, min=4, max=20))
 def generate_grammar_question(topic: str = "particles", complexity: str = "absolute_beginner") -> str:
     """Generates a multiple-choice grammar question for Japanese practice."""
     client = OpenAI(
