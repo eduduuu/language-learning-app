@@ -8,7 +8,7 @@ import fugashi
 from dotenv import load_dotenv
 from openai import OpenAI
 from tenacity import retry, stop_after_attempt, wait_exponential
-from backend.prompts import PROMPTS, GRAMMAR_RULES
+from prompts import PROMPTS, GRAMMAR_RULES
 
 load_dotenv()
 
