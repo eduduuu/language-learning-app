@@ -3,8 +3,9 @@ import './App.css'
 
 function App() {
   const [activeTab, setActiveTab] = useState('reader')
+  const [language, setLanguage] = useState('japanese')
 
-  // --- Reader State & Sliders ---
+  // --- Reader State ---
   const [file, setFile] = useState(null)
   const [startPage, setStartPage] = useState(1)
   const [endPage, setEndPage] = useState(2)
@@ -14,19 +15,47 @@ function App() {
   const [kanjiRatio, setKanjiRatio] = useState(0.3)
   const [complexity, setComplexity] = useState('absolute_beginner')
 
-  // Flashcard State
+  // Ghost Upload & Flashcard State
+  const [uploadStatus, setUploadStatus] = useState(null)
   const [flashcard, setFlashcard] = useState(null)
   const [showAnswer, setShowAnswer] = useState(false)
   const [readerLoading, setReaderLoading] = useState(false)
   const [readerError, setReaderError] = useState(null)
 
   // --- Grammar State ---
-  const [grammarTopic, setGrammarTopic] = useState('beginner_combo')
+  const [grammarTopic, setGrammarTopic] = useState('particles')
   const [grammarComplexity, setGrammarComplexity] = useState('absolute_beginner')
   const [grammarData, setGrammarData] = useState(null)
   const [selectedOption, setSelectedOption] = useState(null)
   const [grammarLoading, setGrammarLoading] = useState(false)
   const [grammarError, setGrammarError] = useState(null)
+
+  const backendUrl = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000';
+
+  // Ghost Upload Handler
+  const handleGhostUpload = async () => {
+    if (!file) return
+    setReaderLoading(true)
+    setReaderError(null)
+
+    const formData = new FormData()
+    formData.append('file', file)
+    formData.append('language', language)
+
+    try {
+      const res = await fetch(`${backendUrl}/upload-book/`, {
+        method: 'POST',
+        body: formData,
+      })
+      if (!res.ok) throw new Error("Ghost extraction failed.")
+      const data = await res.json()
+      setUploadStatus(data)
+    } catch (err) {
+      setReaderError(err.message)
+    } finally {
+      setReaderLoading(false)
+    }
+  }
 
   // Fetch Next Flashcard
   const handleFetchFlashcard = async (e) => {
@@ -46,9 +75,9 @@ function App() {
     formData.append('sentence_length_words', sentenceLengthWords)
     formData.append('kanji_ratio', kanjiRatio)
     formData.append('complexity', complexity)
+    formData.append('language', language)
 
     try {
-      const backendUrl = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8080';
       const response = await fetch(`${backendUrl}/flashcard/`, {
         method: 'POST',
         body: formData,
@@ -75,14 +104,8 @@ function App() {
     setSelectedOption(null)
 
     try {
-      const backendUrl = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8080';
-      const response = await fetch(`${backendUrl}/grammar/?topic=${grammarTopic}&complexity=${grammarComplexity}`)
-
-      if (!response.ok) {
-        const err = await response.json()
-        throw new Error(err.detail || 'Failed to fetch grammar question')
-      }
-
+      const response = await fetch(`${backendUrl}/grammar/?topic=${grammarTopic}&complexity=${grammarComplexity}&language=${language}`)
+      if (!response.ok) throw new Error('Failed to fetch grammar question')
       const data = await response.json()
       setGrammarData(data)
     } catch (err) {
@@ -93,246 +116,223 @@ function App() {
   }
 
   // Vocabulary Highlighting
-  const renderHighlightedSentence = (sentence, targetVocabs) => {
+  const renderSentence = (sentence, targetVocabs) => {
     if (!targetVocabs || targetVocabs.length === 0) return sentence
-
-    // Create a regular expression matching any of the target words
     const pattern = new RegExp(`(${targetVocabs.map(v => v.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})`, 'g')
     const parts = sentence.split(pattern)
 
     return parts.map((part, idx) =>
       targetVocabs.includes(part) ? (
-        <span key={idx} style={{ color: '#4dabf7', fontWeight: 'bold', borderBottom: '2px solid #4dabf7' }}>
-          {part}
-        </span>
-      ) : (
-        part
-      )
+        <span key={idx} className="target-highlight">{part}</span>
+      ) : part
     )
   }
 
   return (
-    <div style={{ maxWidth: '850px', margin: '0 auto', padding: '2rem', fontFamily: 'sans-serif' }}>
-      <h1>Japanese Context Reader 📖</h1>
+    <div className="app-container">
+      {/* Sidebar Navigation */}
+      <aside className="sidebar">
+        <div className="brand-logo">
+          <span>Context Reader</span>
+          <span className="brand-badge">PRO</span>
+        </div>
 
-      {/* Navigation Tabs */}
-      <div style={{ display: 'flex', gap: '1rem', marginBottom: '1.5rem' }}>
-        <button
-          onClick={() => setActiveTab('reader')}
-          style={{
-            padding: '0.75rem 1.5rem',
-            borderRadius: '6px',
-            border: 'none',
-            cursor: 'pointer',
-            backgroundColor: activeTab === 'reader' ? '#4dabf7' : '#333',
-            color: 'white',
-            fontWeight: 'bold'
-          }}
-        >
-          🎴 Reader Flashcards
-        </button>
-        <button
-          onClick={() => setActiveTab('grammar')}
-          style={{
-            padding: '0.75rem 1.5rem',
-            borderRadius: '6px',
-            border: 'none',
-            cursor: 'pointer',
-            backgroundColor: activeTab === 'grammar' ? '#4dabf7' : '#333',
-            color: 'white',
-            fontWeight: 'bold'
-          }}
-        >
-          ✍️ Grammar Practice
-        </button>
-      </div>
-
-      {/* --- TAB 1: ANKI FLASHCARD READER --- */}
-      {activeTab === 'reader' && (
-        <div>
-          <form onSubmit={handleFetchFlashcard} style={{ display: 'flex', flexDirection: 'column', gap: '1.2rem', padding: '1.5rem', border: '1px solid #444', borderRadius: '8px', backgroundColor: '#1e1e1e' }}>
-            
-            {/* File Input */}
-            <div>
-              <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 'bold' }}>Select EPUB File:</label>
-              <input type="file" accept=".epub" onChange={(e) => setFile(e.target.files[0])} required />
-            </div>
-
-            {/* Page Range Inputs */}
-            <div style={{ display: 'flex', gap: '1.5rem', flexWrap: 'wrap' }}>
-              <div>
-                <label style={{ display: 'block', marginBottom: '0.25rem' }}>Start Page</label>
-                <input type="number" min="1" value={startPage} onChange={(e) => setStartPage(Number(e.target.value))} style={{ width: '80px', padding: '0.4rem' }} />
-              </div>
-              <div>
-                <label style={{ display: 'block', marginBottom: '0.25rem' }}>End Page</label>
-                <input type="number" min="1" value={endPage} onChange={(e) => setEndPage(Number(e.target.value))} style={{ width: '80px', padding: '0.4rem' }} />
-              </div>
-              <div>
-                <label style={{ display: 'block', marginBottom: '0.25rem' }}>Complexity</label>
-                <select value={complexity} onChange={(e) => setComplexity(e.target.value)} style={{ padding: '0.4rem' }}>
-                  <option value="absolute_beginner">Absolute Beginner</option>
-                  <option value="elementary">Elementary</option>
-                </select>
-              </div>
-            </div>
-
-            {/* Continuous Sliders */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1.2rem' }}>
-              <div>
-                <label style={{ display: 'block', marginBottom: '0.25rem' }}>
-                  Target Words/Card: <strong>{targetWordsCount}</strong>
-                </label>
-                <input type="range" min="1" max="5" value={targetWordsCount} onChange={(e) => setTargetWordsCount(Number(e.target.value))} style={{ width: '100%' }} />
-              </div>
-
-              <div>
-                <label style={{ display: 'block', marginBottom: '0.25rem' }}>
-                  Approx Sentence Length: <strong>{sentenceLengthWords} words</strong>
-                </label>
-                <input type="range" min="5" max="25" step="1" value={sentenceLengthWords} onChange={(e) => setSentenceLengthWords(Number(e.target.value))} style={{ width: '100%' }} />
-              </div>
-
-              <div>
-                <label style={{ display: 'block', marginBottom: '0.25rem' }}>
-                  Kanji vs Hiragana Ratio: <strong>{Math.round(kanjiRatio * 100)}% Kanji</strong>
-                </label>
-                <input type="range" min="0.0" max="1.0" step="0.1" value={kanjiRatio} onChange={(e) => setKanjiRatio(Number(e.target.value))} style={{ width: '100%' }} />
-              </div>
-
-              <div>
-                <label style={{ display: 'block', marginBottom: '0.25rem' }}>
-                  Chars / Page: <strong>{charsPerPage}</strong>
-                </label>
-                <input type="range" min="500" max="3000" step="250" value={charsPerPage} onChange={(e) => setCharsPerPage(Number(e.target.value))} style={{ width: '100%' }} />
-              </div>
-            </div>
-
-            <button type="submit" disabled={readerLoading || !file} style={{ padding: '0.8rem', fontWeight: 'bold', backgroundColor: '#37b24d', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer' }}>
-              {readerLoading ? 'Extracting & Generating...' : 'Generate First Flashcard'}
+        <ul className="nav-menu">
+          <li>
+            <button 
+              className={`nav-item ${activeTab === 'reader' ? 'active' : ''}`}
+              onClick={() => setActiveTab('reader')}
+            >
+              🎴 Flashcard Deck
             </button>
-          </form>
+          </li>
+          <li>
+            <button 
+              className={`nav-item ${activeTab === 'grammar' ? 'active' : ''}`}
+              onClick={() => setActiveTab('grammar')}
+            >
+              ✍️ Grammar Practice
+            </button>
+          </li>
+        </ul>
 
-          {readerError && <p style={{ color: '#ff6b6b', marginTop: '1rem' }}>Error: {readerError}</p>}
+        <div style={{ marginTop: 'auto' }}>
+          <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>STUDY LANGUAGE</label>
+          <select 
+            value={language} 
+            onChange={(e) => setLanguage(e.target.value)}
+            style={{ marginTop: '0.4rem' }}
+          >
+            <option value="japanese">Japanese 🇯🇵</option>
+            <option value="english">English 🇺🇸</option>
+          </select>
+        </div>
+      </aside>
 
-          {/* Flashcard Card Display */}
-          {flashcard && (
-            <div style={{ marginTop: '2rem', padding: '2.5rem', backgroundColor: '#25262b', borderRadius: '12px', border: '1px solid #373a40', textAlign: 'center' }}>
-              <h2 style={{ fontSize: '2rem', marginBottom: '1.5rem', lineHeight: '1.6' }}>
-                {renderHighlightedSentence(flashcard.japanese_sentence, flashcard.target_vocabs)}
-              </h2>
+      {/* Main Content Area */}
+      <main className="main-content">
+        {activeTab === 'reader' && (
+          <div>
+            <h1 className="page-title">Contextual Deck Studio</h1>
+            <p className="page-subtitle">Upload EPUB/PDFs for ghost vocabulary extraction and smart AI flashcards.</p>
 
-              {!showAnswer ? (
-                <button
-                  onClick={() => setShowAnswer(true)}
-                  style={{ padding: '0.6rem 2rem', fontSize: '1rem', backgroundColor: '#fcc419', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}
-                >
-                  Show Translation
-                </button>
-              ) : (
-                <div style={{ marginTop: '1.5rem', borderTop: '1px solid #444', paddingTop: '1.5rem' }}>
-                  <p style={{ fontSize: '1.2rem', fontStyle: 'italic', color: '#ced4da', marginBottom: '1rem' }}>
-                    "{flashcard.english_translation}"
-                  </p>
-                  <p style={{ fontSize: '0.95rem', color: '#909296' }}>
-                    <strong>Target Vocabulary:</strong> {flashcard.target_vocabs.join(', ')}
-                  </p>
+            {/* Controls Panel */}
+            <div className="panel-card">
+              <div style={{ marginBottom: '1rem' }}>
+                <label style={{ fontWeight: 600, display: 'block', marginBottom: '0.5rem' }}>Select Book File (EPUB):</label>
+                <div style={{ display: 'flex', gap: '1rem' }}>
+                  <input type="file" accept=".epub,.pdf" onChange={(e) => setFile(e.target.files[0])} />
+                  <button className="btn-secondary" onClick={handleGhostUpload} disabled={!file || readerLoading}>
+                    Ghost Extract
+                  </button>
+                </div>
+              </div>
+
+              {uploadStatus && (
+                <div style={{ padding: '0.75rem', background: 'rgba(16, 185, 129, 0.1)', border: '1px solid #10b981', borderRadius: '6px', fontSize: '0.85rem', marginBottom: '1rem' }}>
+                  ✅ {uploadStatus.message} ({uploadStatus.extracted_count} words extracted)
                 </div>
               )}
 
-              <div style={{ marginTop: '2rem' }}>
-                <button
-                  onClick={handleFetchFlashcard}
-                  disabled={readerLoading}
-                  style={{ padding: '0.75rem 2rem', backgroundColor: '#4dabf7', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}
-                >
-                  {readerLoading ? 'Loading Next...' : 'Next Sentence ➔'}
-                </button>
+              <div className="control-grid">
+                <div className="input-group">
+                  <label>Target Words: {targetWordsCount}</label>
+                  <input type="range" min="1" max="5" value={targetWordsCount} onChange={(e) => setTargetWordsCount(Number(e.target.value))} />
+                </div>
+                <div className="input-group">
+                  <label>Sentence Length: {sentenceLengthWords} words</label>
+                  <input type="range" min="5" max="25" value={sentenceLengthWords} onChange={(e) => setSentenceLengthWords(Number(e.target.value))} />
+                </div>
+                {language === 'japanese' && (
+                  <div className="input-group">
+                    <label>Kanji Ratio: {Math.round(kanjiRatio * 100)}%</label>
+                    <input type="range" min="0.0" max="1.0" step="0.1" value={kanjiRatio} onChange={(e) => setKanjiRatio(Number(e.target.value))} />
+                  </div>
+                )}
+                <div className="input-group">
+                  <label>Level</label>
+                  <select value={complexity} onChange={(e) => setComplexity(e.target.value)}>
+                    <option value="absolute_beginner">Beginner</option>
+                    <option value="elementary">Elementary</option>
+                  </select>
+                </div>
               </div>
-            </div>
-          )}
-        </div>
-      )}
 
-      {/* --- TAB 2: GRAMMAR PRACTICE --- */}
-      {activeTab === 'grammar' && (
-        <div style={{ padding: '1.5rem', backgroundColor: '#1e1e1e', borderRadius: '8px', border: '1px solid #444' }}>
-          <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', marginBottom: '1.5rem' }}>
-            <div>
-              <label style={{ display: 'block', marginBottom: '0.4rem' }}>Topic:</label>
-              <select value={grammarTopic} onChange={(e) => setGrammarTopic(e.target.value)} style={{ padding: '0.5rem' }}>
-                <option value="beginner_combo">Beginner Combo</option>
-                <option value="particles">Particles (は, が, を, に, で...)</option>
-                <option value="politeness">Politeness (~です, ~ます)</option>
-                <option value="verb_conjugation">Verb Conjugations</option>
-              </select>
-            </div>
-
-            <div>
-              <label style={{ display: 'block', marginBottom: '0.4rem' }}>Complexity:</label>
-              <select value={grammarComplexity} onChange={(e) => setGrammarComplexity(e.target.value)} style={{ padding: '0.5rem' }}>
-                <option value="absolute_beginner">Absolute Beginner</option>
-                <option value="elementary">Elementary</option>
-              </select>
-            </div>
-
-            <div style={{ display: 'flex', alignItems: 'flex-end' }}>
-              <button
-                onClick={handleFetchGrammar}
-                disabled={grammarLoading}
-                style={{ padding: '0.5rem 1.5rem', backgroundColor: '#4dabf7', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}
-              >
-                {grammarLoading ? 'Generating...' : 'Get Question'}
+              <button className="btn-primary" style={{ marginTop: '1.25rem', width: '100%' }} onClick={handleFetchFlashcard} disabled={!file || readerLoading}>
+                {readerLoading ? 'Generating Flashcard...' : 'Generate Context Sentence'}
               </button>
             </div>
+
+            {readerError && <p style={{ color: 'var(--error-color)' }}>Error: {readerError}</p>}
+
+            {/* Flashcard View */}
+            {flashcard && (
+              <div className="flashcard-display">
+                <div className="japanese-text">
+                  {renderSentence(flashcard.japanese_sentence || flashcard.sentence, flashcard.target_vocabs)}
+                </div>
+
+                {!showAnswer ? (
+                  <button className="btn-secondary" onClick={() => setShowAnswer(true)}>Show Translation</button>
+                ) : (
+                  <div>
+                    <p style={{ fontStyle: 'italic', color: 'var(--text-secondary)', marginBottom: '1rem' }}>
+                      "{flashcard.english_translation || flashcard.translation}"
+                    </p>
+
+                    {/* Kanji Deep-Dive Accordion */}
+                    {flashcard.first_time_breakdowns && flashcard.first_time_breakdowns.length > 0 && (
+                      <div className="kanji-drawer">
+                        <h4 style={{ fontSize: '0.9rem', color: 'var(--accent-color)' }}>🔍 Kanji Visual Breakdown</h4>
+                        {flashcard.first_time_breakdowns.map((item, idx) => (
+                          <div key={idx} className="breakdown-card">
+                            <strong>{item.word} ({item.kanji})</strong>
+                            <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: '0.2rem' }}>
+                              <strong>Radicals:</strong> {item.radicals} | <strong>Mnemonic:</strong> {item.visual_mnemonic}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <div style={{ marginTop: '2rem' }}>
+                  <button className="btn-primary" onClick={handleFetchFlashcard}>Next Card ➔</button>
+                </div>
+              </div>
+            )}
           </div>
+        )}
 
-          {grammarError && <p style={{ color: '#ff6b6b' }}>Error: {grammarError}</p>}
+        {/* Grammar Tab */}
+        {activeTab === 'grammar' && (
+          <div>
+            <h1 className="page-title">Grammar Topic Trainer</h1>
+            <p className="page-subtitle">Practice isolated grammar patterns and verb conjugations.</p>
 
-          {grammarData && (
-            <div style={{ marginTop: '2rem', padding: '1.5rem', backgroundColor: '#25262b', borderRadius: '8px' }}>
-              <h3 style={{ fontSize: '1.3rem', marginBottom: '1.5rem' }}>{grammarData.question}</h3>
-
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.8rem' }}>
-                {grammarData.options.map((option, idx) => {
-                  let btnColor = '#2c2e33'
-                  if (selectedOption !== null) {
-                    if (idx === grammarData.correct_index) btnColor = '#2b8a3e'
-                    else if (selectedOption === idx) btnColor = '#c92a2a'
-                  }
-
-                  return (
-                    <button
-                      key={idx}
-                      onClick={() => setSelectedOption(idx)}
-                      style={{
-                        padding: '1rem',
-                        textAlign: 'left',
-                        backgroundColor: btnColor,
-                        color: 'white',
-                        border: '1px solid #444',
-                        borderRadius: '6px',
-                        cursor: 'pointer',
-                        fontSize: '1rem'
-                      }}
-                    >
-                      {idx + 1}. {option}
-                    </button>
-                  )
-                })}
+            <div className="panel-card">
+              <div className="control-grid">
+                <div className="input-group">
+                  <label>Grammar Topic</label>
+                  <select value={grammarTopic} onChange={(e) => setGrammarTopic(e.target.value)}>
+                    <option value="particles">Particles (は, が, を, に, で)</option>
+                    <option value="politeness">Politeness (~です, ~ます)</option>
+                    <option value="verb_conjugation">Verb Conjugations</option>
+                  </select>
+                </div>
+                <div className="input-group">
+                  <label>Complexity</label>
+                  <select value={grammarComplexity} onChange={(e) => setGrammarComplexity(e.target.value)}>
+                    <option value="absolute_beginner">Beginner</option>
+                    <option value="elementary">Elementary</option>
+                  </select>
+                </div>
               </div>
 
-              {selectedOption !== null && (
-                <div style={{ marginTop: '1.5rem', padding: '1rem', backgroundColor: '#1a1b1e', borderRadius: '6px', borderLeft: '4px solid #4dabf7' }}>
-                  <p style={{ margin: 0, color: '#f1f3f5', lineHeight: '1.5' }}>
-                    <strong>Explanation:</strong> {grammarData.explanation}
-                  </p>
-                </div>
-              )}
+              <button className="btn-primary" style={{ marginTop: '1.25rem' }} onClick={handleFetchGrammar} disabled={grammarLoading}>
+                {grammarLoading ? 'Generating...' : 'Get Grammar Question'}
+              </button>
             </div>
-          )}
-        </div>
-      )}
+
+            {grammarError && <p style={{ color: 'var(--error-color)' }}>Error: {grammarError}</p>}
+
+            {grammarData && (
+              <div className="panel-card">
+                <h3 style={{ marginBottom: '1.25rem' }}>{grammarData.question}</h3>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                  {grammarData.options.map((option, idx) => {
+                    let btnStyle = { background: 'var(--bg-primary)' }
+                    if (selectedOption !== null) {
+                      if (idx === grammarData.correct_index) btnStyle = { background: 'rgba(16, 185, 129, 0.2)', borderColor: '#10b981' }
+                      else if (selectedOption === idx) btnStyle = { background: 'rgba(239, 68, 68, 0.2)', borderColor: '#ef4444' }
+                    }
+
+                    return (
+                      <button 
+                        key={idx} 
+                        className="btn-secondary" 
+                        style={{ textAlign: 'left', ...btnStyle }}
+                        onClick={() => setSelectedOption(idx)}
+                      >
+                        {idx + 1}. {option}
+                      </button>
+                    )
+                  })}
+                </div>
+
+                {selectedOption !== null && (
+                  <div style={{ marginTop: '1.25rem', padding: '1rem', background: 'var(--bg-primary)', borderRadius: '6px', borderLeft: '3px solid var(--accent-color)' }}>
+                    <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
+                      <strong>Explanation:</strong> {grammarData.explanation}
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+      </main>
     </div>
   )
 }
