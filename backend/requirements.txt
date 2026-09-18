@@ -9,3 +9,4 @@ openai
 tenacity
 python-dotenv
 pydantic
+supabase==2.3.4
