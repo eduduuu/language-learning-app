@@ -13,7 +13,7 @@ EXCLUDE_EXTS = {
 
 OUTPUT_FILE = "condensed_codebase.txt"
 
-def pack_codebase(root_dir="."):
+def pack_codebase(root_dir="./frontend/src"):
     root_path = Path(root_dir).resolve()
     processed_count = 0
 

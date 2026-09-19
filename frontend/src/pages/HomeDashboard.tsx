@@ -1,68 +1,28 @@
-import React, { useEffect, useState, ChangeEvent, FormEvent } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
-  AlertCircle,
-  BarChart2,
   Book,
   BookOpen,
-  Brain,
   CheckCircle2,
-  ChevronDown,
   Clock,
-  FileText,
-  Filter,
   Flame,
-  HelpCircle,
   Plus,
-  Play,
-  RotateCcw,
+  Search,
   Sparkles,
   Trash2,
   Upload,
   X,
 } from 'lucide-react';
-import { api } from '../lib/api';
-import { useAuth } from '../context/AuthContext';
+
+import { Badge, Button, Card, Input, PageHeader, Segmented } from '../components/ui';
 import {
-  Badge,
-  Button,
-  Card,
-  CardHeader,
-  EmptyState,
-  Input,
-  Label,
-  PageHeader,
-  Segmented,
-  Skeleton,
-} from '../components/ui';
-
-export type BookStatus = 'learning' | 'on_hold' | 'completed';
-
-export interface SavedBook {
-  id: string;
-  user_id: string;
-  title: string;
-  language: string;
-  cover_url?: string;
-  created_at: string;
-  // Enhanced local/mock fields
-  status?: BookStatus;
-  mastery?: number;
-  known_words?: number;
-  total_words?: number;
-}
-
-interface ComprehensionStats {
-  total_unique_words: number;
-  known_words: number;
-  percentage: number;
-}
-
-interface EPUBAnalyzeResponse {
-  total_range_words: number;
-  total_book_words: number;
-  full_book_stats: ComprehensionStats;
-  range_stats: ComprehensionStats;
-}
+  createLocalBookFromEpub,
+  deleteLocalBook,
+  listLocalBooks,
+  seedMockBooks,
+  updateLocalBookStatus,
+} from '../lib/localBookStore';
+import { useAuth } from '../context/AuthContext';
+import type { BookLanguage, BookStatus, BookSummary } from '../types/book';
 
 interface HomeDashboardProps {
   onNavigate?: (tab: string, params?: { bookId?: string }) => void;
@@ -71,341 +31,221 @@ interface HomeDashboardProps {
 export const HomeDashboard: React.FC<HomeDashboardProps> = ({ onNavigate }) => {
   const { user } = useAuth();
 
-  // Books State
-  const [books, setBooks] = useState<SavedBook[]>([]);
-  const [fetchingBooks, setFetchingBooks] = useState(true);
+  const [books, setBooks] = useState<BookSummary[]>([]);
+  const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | BookStatus>('all');
-  const [searchQuery, setSearchQuery] = useState('');
 
-  // Drawer / Upload Form State
-  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
-  const [file, setFile] = useState<File | null>(null);
+  const [drawerOpen, setDrawerOpen] = useState(false);
   const [title, setTitle] = useState('');
-  const [language, setLanguage] = useState<'japanese' | 'english'>('japanese');
-  const [startPage, setStartPage] = useState(1);
-  const [endPage, setEndPage] = useState(10);
+  const [language, setLanguage] = useState<BookLanguage>('japanese');
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [importProgress, setImportProgress] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
 
-  const [loading, setLoading] = useState(false);
-  const [analyzing, setAnalyzing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
-  const [analysis, setAnalysis] = useState<EPUBAnalyzeResponse | null>(null);
-
-  // Status dropdown menu state for individual book cards
-  const [openStatusMenuId, setOpenStatusMenuId] = useState<string | null>(null);
-
-  useEffect(() => {
-    fetchBooks();
-  }, []);
-
-  const fetchBooks = async () => {
-    setFetchingBooks(true);
-    try {
-      const res = await api.get('/epub/books', {
-        headers: { 'x-user-id': user?.id },
-      });
-      
-      // Merge with default mock metadata for status and mastery
-      const enrichedBooks: SavedBook[] = res.data.map((b: SavedBook, idx: number) => ({
-        ...b,
-        status: b.status || (idx === 0 ? 'learning' : idx === 1 ? 'on_hold' : 'completed'),
-        mastery: b.mastery || Math.floor(60 + Math.random() * 35),
-        known_words: b.known_words || 1420 + idx * 300,
-        total_words: b.total_words || 2100 + idx * 400,
-      }));
-
-      setBooks(enrichedBooks);
-    } catch (err) {
-      console.error('Failed to load books:', err);
-    } finally {
-      setFetchingBooks(false);
-    }
-  };
-
-  const handleUpdateBookStatus = (bookId: string, newStatus: BookStatus) => {
-    setBooks((prev) =>
-      prev.map((b) => (b.id === bookId ? { ...b, status: newStatus } : b))
-    );
-    setOpenStatusMenuId(null);
-  };
-
-  const handleFileChange = (e: ChangeEvent<HTMLInputElement>) => {
-    const selected = e.target.files?.[0];
-    if (!selected) return;
-    if (!selected.name.endsWith('.epub')) {
-      setError('Please select a valid .epub file.');
-      return;
-    }
-    setFile(selected);
-    setAnalysis(null);
-    setError(null);
-    if (!title) setTitle(selected.name.replace('.epub', ''));
-  };
-
-  const handleAnalyze = async () => {
-    if (!file) return;
-    setAnalyzing(true);
-    setError(null);
-
-    const formData = new FormData();
-    formData.append('file', file);
-    formData.append('language', language);
-    formData.append('start_page', startPage.toString());
-    formData.append('end_page', endPage.toString());
-
-    try {
-      const res = await api.post<EPUBAnalyzeResponse>('/epub/analyze', formData, {
-        headers: {
-          'Content-Type': 'multipart/form-data',
-          'x-user-id': user?.id,
-        },
-      });
-      setAnalysis(res.data);
-    } catch (err: any) {
-      setError(err.response?.data?.detail || 'Failed to analyze EPUB.');
-    } finally {
-      setAnalyzing(false);
-    }
-  };
-
-  const handleUploadSubmit = async (e: FormEvent) => {
-    e.preventDefault();
-    if (!file || !title) return;
+  const refreshBooks = async () => {
     setLoading(true);
-    setError(null);
-    setSuccess(null);
-
-    const formData = new FormData();
-    formData.append('file', file);
-    formData.append('title', title);
-    formData.append('language', language);
-    formData.append('start_page', startPage.toString());
-    formData.append('end_page', endPage.toString());
-
     try {
-      const res = await api.post('/epub/process', formData, {
-        headers: {
-          'Content-Type': 'multipart/form-data',
-          'x-user-id': user?.id,
-        },
-      });
-
-      setSuccess(`"${res.data.title}" added to library!`);
-      setFile(null);
-      setTitle('');
-      setStartPage(1);
-      setEndPage(10);
-      setAnalysis(null);
-      
-      await fetchBooks();
-      setTimeout(() => {
-        setIsDrawerOpen(false);
-        setSuccess(null);
-      }, 1200);
-    } catch (err: any) {
-      setError(err.response?.data?.detail || 'Failed to process EPUB.');
+      setBooks(await listLocalBooks());
     } finally {
       setLoading(false);
     }
   };
 
-  const handleDeleteBook = async (bookId: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (!window.confirm('Delete this book from your library?')) return;
+  useEffect(() => {
+    let cancelled = false;
+
+    const initialize = async () => {
+      await seedMockBooks();
+      if (!cancelled) await refreshBooks();
+    };
+
+    initialize().catch((error) => {
+      console.error('Failed to initialize local library:', error);
+      if (!cancelled) setLoading(false);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const activeBook = books.find((book) => book.status === 'learning') ?? books[0];
+
+  const filteredBooks = useMemo(() => {
+    const query = search.trim().toLowerCase();
+
+    return books.filter((book) => {
+      const statusMatches = statusFilter === 'all' || book.status === statusFilter;
+      const searchMatches = !query || book.title.toLowerCase().includes(query);
+      return statusMatches && searchMatches;
+    });
+  }, [books, search, statusFilter]);
+
+  const handleImport = async () => {
+    if (!selectedFile) return;
+
+    const bookTitle = title.trim() || selectedFile.name.replace(/\.epub$/i, '');
+
     try {
-      await api.delete(`/epub/books/${bookId}`, {
-        headers: { 'x-user-id': user?.id },
-      });
-      setBooks((prev) => prev.filter((b) => b.id !== bookId));
-    } catch {
-      alert('Failed to delete book.');
+      setImportProgress('Starting local import…');
+
+      const created = await createLocalBookFromEpub(
+        bookTitle,
+        language,
+        selectedFile,
+        (message) => setImportProgress(message)
+      );
+
+      await refreshBooks();
+
+      setDrawerOpen(false);
+      setSelectedFile(null);
+      setTitle('');
+      setLanguage('japanese');
+      setImportProgress(null);
+
+      onNavigate?.('reader', { bookId: created.id });
+    } catch (error) {
+      console.error('Failed to import EPUB:', error);
+      setImportProgress(
+        error instanceof Error
+          ? error.message
+          : 'Failed to import EPUB.'
+      );
     }
   };
 
-  const filteredBooks = books.filter((b) => {
-    const matchesStatus = statusFilter === 'all' || b.status === statusFilter;
-    const matchesSearch = b.title.toLowerCase().includes(searchQuery.toLowerCase());
-    return matchesStatus && matchesSearch;
-  });
+  const handleDelete = async (bookId: string, event: React.MouseEvent) => {
+    event.stopPropagation();
 
-  const activeBook = books.find((b) => b.status === 'learning') || books[0];
+    if (!window.confirm('Remove this book from your local library?')) return;
+
+    await deleteLocalBook(bookId);
+    await refreshBooks();
+  };
+
+  const handleStatusChange = async (bookId: string, status: BookStatus) => {
+    await updateLocalBookStatus(bookId, status);
+    await refreshBooks();
+  };
 
   return (
-    <div className="space-y-8 max-w-7xl mx-auto">
-      {/* Page Title & Add Button */}
+    <div className="space-y-10 max-w-7xl mx-auto">
       <PageHeader
         icon={BookOpen}
-        kicker="Dashboard"
+        kicker="Library"
         title="Welcome back, Reader"
-        subtitle="Track your reading progress, review vocabulary SRS cards, and expand your language corpus."
+        subtitle="Read your books locally, turn discoveries into vocabulary, and build your Japanese knowledge through context."
         action={
-          <Button onClick={() => setIsDrawerOpen(true)} size="lg">
-            <Plus size={16} /> Add New EPUB
+          <Button size="lg" onClick={() => setDrawerOpen(true)}>
+            <Plus size={16} />
+            Add Book
           </Button>
         }
       />
 
-      {/* Quick Metrics Bar */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <Card className="p-4 flex items-center gap-3.5">
-          <div className="p-2.5 rounded-xl bg-amber-400/10 text-amber-400 border border-amber-400/20">
-            <Flame size={20} />
-          </div>
-          <div>
-            <div className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
-              Reading Streak
-            </div>
-            <div className="text-xl font-bold text-zinc-100 tabular-nums">12 Days</div>
-          </div>
-        </Card>
-
-        <Card className="p-4 flex items-center gap-3.5">
-          <div className="p-2.5 rounded-xl bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-            <Brain size={20} />
-          </div>
-          <div>
-            <div className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
-              Words Mastered
-            </div>
-            <div className="text-xl font-bold text-zinc-100 tabular-nums">1,420</div>
-          </div>
-        </Card>
-
-        <Card className="p-4 flex items-center gap-3.5">
-          <div className="p-2.5 rounded-xl bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
-            <RotateCcw size={20} />
-          </div>
-          <div>
-            <div className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
-              SRS Queue Due
-            </div>
-            <div className="text-xl font-bold text-amber-400 tabular-nums">24 Cards</div>
-          </div>
-        </Card>
-
-        <Card className="p-4 flex items-center gap-3.5">
-          <div className="p-2.5 rounded-xl bg-zinc-800 text-zinc-300 border border-zinc-700/80">
-            <Book size={20} />
-          </div>
-          <div>
-            <div className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
-              Active Books
-            </div>
-            <div className="text-xl font-bold text-zinc-100 tabular-nums">
-              {books.filter((b) => b.status === 'learning').length} Books
-            </div>
-          </div>
-        </Card>
+        <StatCard icon={<Flame size={19} />} label="Reading Streak" value="12 days" />
+        <StatCard icon={<BookOpen size={19} />} label="Words Mastered" value="1,420" />
+        <StatCard icon={<Clock size={19} />} label="Reviews Due" value="24" />
+        <StatCard
+          icon={<Book size={19} />}
+          label="Active Books"
+          value={`${books.filter((book) => book.status === 'learning').length}`}
+        />
       </div>
 
-      {/* Hero Daily Focus Widgets */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* SRS Review Action */}
-        <Card className="p-6 relative overflow-hidden flex flex-col justify-between border-amber-400/20 bg-gradient-to-br from-zinc-900/90 via-zinc-900/60 to-amber-950/20">
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <Badge variant="gold">Daily Retention</Badge>
-              <Clock size={14} className="text-zinc-500" />
-            </div>
-            <h3 className="text-lg font-bold text-zinc-100">SRS Flashcard Review</h3>
-            <p className="text-xs text-zinc-400 leading-relaxed">
-              You have <strong className="text-amber-400">24 cards</strong> ready for review today across your active books.
-            </p>
-          </div>
-          <div className="mt-6">
-            <Button
-              onClick={() => onNavigate?.('vocab')}
-              fullWidth
-              className="shadow-lg shadow-amber-400/10"
-            >
-              <Brain size={15} /> Start Review Queue
-            </Button>
-          </div>
-        </Card>
+      {activeBook && (
+        <Card className="relative overflow-hidden border-amber-400/20 bg-gradient-to-br from-zinc-900 via-zinc-900/70 to-amber-950/20">
+          <div className="absolute right-0 top-0 w-72 h-72 bg-amber-400/[0.03] blur-3xl pointer-events-none" />
 
-        {/* Continue Reading Widget */}
-        <Card className="p-6 flex flex-col justify-between">
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <Badge variant="default">Continue Reading</Badge>
-              <span className="text-[11px] text-zinc-500">Last active</span>
-            </div>
-            {activeBook ? (
-              <div className="flex items-center gap-3.5">
-                <div className="w-12 h-16 rounded-md bg-zinc-950 border border-zinc-800 shrink-0 overflow-hidden">
-                  {activeBook.cover_url ? (
-                    <img src={activeBook.cover_url} alt={activeBook.title} className="w-full h-full object-cover" />
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center text-amber-400/40">
-                      <Book size={18} />
-                    </div>
-                  )}
+          <div className="relative p-6 md:p-8 flex flex-col md:flex-row md:items-center justify-between gap-6">
+            <div className="flex items-center gap-5">
+              <div className="w-20 h-28 rounded-lg overflow-hidden border border-zinc-700/70 bg-zinc-950 flex items-center justify-center shrink-0">
+                <Book size={28} className="text-amber-400/40" />
+              </div>
+
+              <div>
+                <Badge variant="gold">Continue Reading</Badge>
+                <h2 className="font-display text-3xl text-zinc-50 mt-3">{activeBook.title}</h2>
+
+                <div className="flex flex-wrap items-center gap-3 mt-2 text-xs text-zinc-500">
+                  <span>
+                    {activeBook.knownWords.toLocaleString()} / {activeBook.totalWords.toLocaleString()} words
+                  </span>
+                  <span>•</span>
+                  <span className="text-emerald-400">{activeBook.mastery}% mastery</span>
                 </div>
-                <div className="min-w-0">
-                  <h4 className="text-sm font-semibold text-zinc-100 truncate">{activeBook.title}</h4>
-                  <div className="text-[11px] text-zinc-500 mt-1 font-mono">
-                    {activeBook.known_words} / {activeBook.total_words} words ({activeBook.mastery}%)
-                  </div>
+
+                <div className="mt-4 w-56 h-1.5 rounded-full bg-zinc-800 overflow-hidden">
+                  <div
+                    className="h-full rounded-full bg-emerald-400"
+                    style={{ width: `${activeBook.mastery}%` }}
+                  />
                 </div>
               </div>
-            ) : (
-              <p className="text-xs text-zinc-500">No active book in progress.</p>
-            )}
-          </div>
-          <div className="mt-6">
-            <Button
-              variant="secondary"
-              fullWidth
-              disabled={!activeBook}
-              onClick={() => activeBook && onNavigate?.('vocab', { bookId: activeBook.id })}
-            >
-              <Play size={14} /> Open Book Vocabulary
-            </Button>
-          </div>
-        </Card>
-
-        {/* Suggested Quiz Widget */}
-        <Card className="p-6 flex flex-col justify-between">
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <Badge variant="success">Suggested Practice</Badge>
-              <Sparkles size={14} className="text-emerald-400" />
             </div>
-            <h3 className="text-lg font-bold text-zinc-100">Weak Words Quiz</h3>
-            <p className="text-xs text-zinc-400 leading-relaxed">
-              Target 10 Japanese verbs you recently marked as difficult in your last reading session.
-            </p>
-          </div>
-          <div className="mt-6">
-            <Button variant="secondary" fullWidth onClick={() => onNavigate?.('quiz')}>
-              <HelpCircle size={15} /> Take Quick Quiz
+
+            <Button
+              size="lg"
+              onClick={() => onNavigate?.('reader', { bookId: activeBook.id })}
+            >
+              <BookOpen size={16} />
+              Continue Reading
             </Button>
           </div>
         </Card>
+      )}
+
+      <div className="grid md:grid-cols-3 gap-4">
+        <PracticeCard
+          label="Daily Review"
+          title="24 cards due"
+          description="Review vocabulary from your books."
+          icon={<Sparkles size={17} />}
+          action="Start Review"
+          onClick={() => onNavigate?.('vocab')}
+        />
+
+        <PracticeCard
+          label="Weak Vocabulary"
+          title="10 words need attention"
+          description="Practice words you've struggled with recently."
+          icon={<Search size={17} />}
+          action="Practice"
+          onClick={() => onNavigate?.('vocab')}
+        />
+
+        <PracticeCard
+          label="Grammar"
+          title="Quick grammar practice"
+          description="Test your understanding of Japanese patterns."
+          icon={<CheckCircle2 size={17} />}
+          action="Take Quiz"
+          onClick={() => onNavigate?.('quiz')}
+        />
       </div>
 
-      {/* Main Library Stage */}
-      <div className="space-y-5 pt-4">
-        {/* Header, Search & Status Filters */}
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-zinc-800/80 pb-4">
-          <div className="flex items-center gap-3">
-            <h2 className="font-display text-2xl text-zinc-100">My Library</h2>
-            <Badge variant="muted">{filteredBooks.length} Books</Badge>
+      <section className="space-y-5">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div>
+            <h2 className="font-display text-3xl text-zinc-100">My Library</h2>
+            <p className="text-xs text-zinc-600 mt-1">
+              Your books are stored locally on this device.
+            </p>
           </div>
 
           <div className="flex flex-wrap items-center gap-3">
-            {/* Search Input */}
             <Input
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
               placeholder="Search books…"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-48 text-xs"
+              className="w-52"
             />
 
-            {/* Filter Pills */}
             <Segmented
               value={statusFilter}
-              onChange={(v) => setStatusFilter(v as any)}
+              onChange={(value) => setStatusFilter(value as 'all' | BookStatus)}
               options={[
                 { value: 'all', label: 'All' },
                 { value: 'learning', label: 'Learning' },
@@ -416,337 +256,241 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({ onNavigate }) => {
           </div>
         </div>
 
-        {/* Books Grid */}
-        {fetchingBooks ? (
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-5">
-            {Array.from({ length: 5 }).map((_, i) => (
-              <Skeleton key={i} className="aspect-[2/3.4]" />
-            ))}
+        {loading ? (
+          <div className="py-20 flex justify-center text-sm text-zinc-600">
+            Loading library…
           </div>
         ) : filteredBooks.length === 0 ? (
-          <EmptyState
-            icon={Book}
-            title="No books found"
-            description={
-              searchQuery
-                ? `No books matching "${searchQuery}"`
-                : 'Upload an EPUB file to populate your collection.'
-            }
-            action={
-              <Button onClick={() => setIsDrawerOpen(true)}>
-                <Plus size={14} /> Add EPUB
+          <Card className="p-12 text-center">
+            <Book size={28} className="mx-auto text-zinc-700" />
+            <h3 className="text-sm font-semibold text-zinc-200 mt-4">No books found</h3>
+            <p className="text-xs text-zinc-600 mt-2">Add a book to start building your local library.</p>
+            <div className="mt-5">
+              <Button onClick={() => setDrawerOpen(true)}>
+                <Plus size={14} />
+                Add Book
               </Button>
-            }
-          />
+            </div>
+          </Card>
         ) : (
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-5">
-            {filteredBooks.map((b) => {
-              const isMenuOpen = openStatusMenuId === b.id;
-
-              return (
-                <div
-                  key={b.id}
-                  onClick={() => onNavigate?.('vocab', { bookId: b.id })}
-                  className="group relative flex flex-col rounded-xl overflow-hidden border border-zinc-800/80 bg-zinc-900/40 hover:border-amber-400/50 transition-all duration-300 hover:-translate-y-1 hover:shadow-2xl hover:shadow-amber-400/5 cursor-pointer"
-                >
-                  {/* Book Cover Image */}
-                  <div className="relative aspect-[2/3] bg-zinc-950 overflow-hidden">
-                    {b.cover_url ? (
-                      <img
-                        src={b.cover_url}
-                        alt={b.title}
-                        className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
-                      />
-                    ) : (
-                      <div className="w-full h-full bg-gradient-to-br from-zinc-900 via-zinc-950 to-amber-950/20 flex flex-col items-center justify-center p-4 text-center">
-                        <Book size={32} className="text-amber-400/40 mb-2" />
-                        <span className="text-xs font-semibold text-zinc-300 line-clamp-3">
-                          {b.title}
-                        </span>
-                      </div>
-                    )}
-
-                    {/* Gradient Overlay */}
-                    <div className="absolute inset-0 bg-gradient-to-t from-zinc-950 via-transparent to-transparent opacity-60 group-hover:opacity-40 transition-opacity" />
-
-                    {/* Language Badge */}
-                    <span className="absolute bottom-2 left-2 text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-zinc-950/90 text-amber-300 border border-amber-400/30 backdrop-blur">
-                      {b.language === 'japanese' ? 'JP' : 'EN'}
-                    </span>
-
-                    {/* Delete Action */}
-                    <button
-                      onClick={(e) => handleDeleteBook(b.id, e)}
-                      title="Delete book"
-                      className="absolute top-2 right-2 p-1.5 rounded-md bg-zinc-950/80 text-zinc-400 hover:text-rose-300 hover:bg-rose-500/20 opacity-0 group-hover:opacity-100 transition-all backdrop-blur"
-                    >
-                      <Trash2 size={13} />
-                    </button>
-                  </div>
-
-                  {/* Book Card Content */}
-                  <div className="p-3.5 flex-1 flex flex-col justify-between bg-zinc-900/60">
-                    <div>
-                      <h3 className="text-xs font-semibold text-zinc-100 truncate" title={b.title}>
-                        {b.title}
-                      </h3>
-
-                      {/* Status Selector Dropdown */}
-                      <div className="relative mt-2" onClick={(e) => e.stopPropagation()}>
-                        <button
-                          type="button"
-                          onClick={() => setOpenStatusMenuId(isMenuOpen ? null : b.id)}
-                          className="w-full flex items-center justify-between text-[10px] font-medium px-2 py-1 rounded bg-zinc-950 border border-zinc-800 text-zinc-300 hover:border-zinc-700"
-                        >
-                          <span className="flex items-center gap-1.5 capitalize">
-                            <span
-                              className={`w-1.5 h-1.5 rounded-full ${
-                                b.status === 'learning'
-                                  ? 'bg-emerald-400'
-                                  : b.status === 'on_hold'
-                                  ? 'bg-amber-400'
-                                  : 'bg-indigo-400'
-                              }`}
-                            />
-                            {b.status === 'learning'
-                              ? 'Learning'
-                              : b.status === 'on_hold'
-                              ? 'On Hold'
-                              : 'Completed'}
-                          </span>
-                          <ChevronDown size={12} className="text-zinc-500" />
-                        </button>
-
-                        {/* Status Menu Popup */}
-                        {isMenuOpen && (
-                          <div className="absolute left-0 right-0 top-full mt-1 z-30 bg-zinc-900 border border-zinc-700 rounded-lg shadow-xl overflow-hidden py-1">
-                            <button
-                              onClick={() => handleUpdateBookStatus(b.id, 'learning')}
-                              className="w-full text-left px-2.5 py-1.5 text-[11px] text-zinc-200 hover:bg-zinc-800 flex items-center gap-2"
-                            >
-                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                              Learning
-                            </button>
-                            <button
-                              onClick={() => handleUpdateBookStatus(b.id, 'on_hold')}
-                              className="w-full text-left px-2.5 py-1.5 text-[11px] text-zinc-200 hover:bg-zinc-800 flex items-center gap-2"
-                            >
-                              <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
-                              On Hold
-                            </button>
-                            <button
-                              onClick={() => handleUpdateBookStatus(b.id, 'completed')}
-                              className="w-full text-left px-2.5 py-1.5 text-[11px] text-zinc-200 hover:bg-zinc-800 flex items-center gap-2"
-                            >
-                              <span className="w-1.5 h-1.5 rounded-full bg-indigo-400" />
-                              Completed
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Mastery Bar */}
-                    <div className="mt-3 pt-2 border-t border-zinc-800/60">
-                      <div className="flex justify-between text-[10px] text-zinc-500 mb-1">
-                        <span>Mastery</span>
-                        <span className="font-mono text-emerald-400">{b.mastery}%</span>
-                      </div>
-                      <div className="h-1 bg-zinc-950 rounded-full overflow-hidden">
-                        <div
-                          className="h-full bg-gradient-to-r from-emerald-500 to-emerald-400 rounded-full"
-                          style={{ width: `${b.mastery}%` }}
-                        />
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
+            {filteredBooks.map((book) => (
+              <BookCard
+                key={book.id}
+                book={book}
+                onOpen={() => onNavigate?.('reader', { bookId: book.id })}
+                onDelete={(event) => handleDelete(book.id, event)}
+                onStatusChange={(status) => handleStatusChange(book.id, status)}
+              />
+            ))}
           </div>
         )}
-      </div>
+      </section>
 
-      {/* Slide-Over Drawer for Adding EPUB */}
-      {isDrawerOpen && (
-        <div className="fixed inset-0 z-50 flex justify-end bg-zinc-950/80 backdrop-blur-sm animate-fade-in">
-          <div className="w-full max-w-md bg-zinc-950 border-l border-zinc-800/80 h-full overflow-y-auto p-6 space-y-6 shadow-2xl flex flex-col justify-between">
-            <div className="space-y-6">
-              {/* Drawer Header */}
-              <div className="flex items-center justify-between border-b border-zinc-800 pb-4">
-                <div className="flex items-center gap-2.5">
-                  <div className="grid place-items-center w-8 h-8 rounded-lg bg-amber-400/10 text-amber-400 ring-1 ring-amber-400/20">
-                    <Upload size={16} />
-                  </div>
-                  <h3 className="font-semibold text-zinc-100 text-sm">Add New EPUB</h3>
+      {drawerOpen && (
+        <div className="fixed inset-0 z-50 bg-zinc-950/80 backdrop-blur-sm flex justify-end">
+          <div className="w-full max-w-md bg-zinc-950 border-l border-zinc-800 h-full p-6 flex flex-col">
+            <div className="flex items-center justify-between border-b border-zinc-800 pb-4">
+              <div>
+                <div className="text-xs uppercase tracking-[0.18em] text-amber-400 font-semibold">
+                  Library
                 </div>
-                <button
-                  onClick={() => setIsDrawerOpen(false)}
-                  className="p-1 text-zinc-500 hover:text-zinc-200 rounded-lg hover:bg-zinc-900"
-                >
-                  <X size={18} />
-                </button>
+                <h2 className="font-display text-2xl text-zinc-100 mt-1">Add Book</h2>
               </div>
 
-              {/* Upload Form */}
-              <form id="epub-upload-form" onSubmit={handleUploadSubmit} className="space-y-4">
-                {error && (
-                  <div className="flex items-start gap-2.5 p-3 rounded-lg bg-rose-500/10 border border-rose-500/25 text-rose-300 text-xs">
-                    <AlertCircle size={15} className="shrink-0 mt-0.5" />
-                    <span>{error}</span>
-                  </div>
-                )}
-                {success && (
-                  <div className="flex items-start gap-2.5 p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/25 text-emerald-300 text-xs">
-                    <CheckCircle2 size={15} className="shrink-0 mt-0.5" />
-                    <span>{success}</span>
-                  </div>
-                )}
-
-                {/* Dropzone */}
-                <label className="block">
-                  <div
-                    className={`relative border border-dashed rounded-xl p-5 text-center transition-colors cursor-pointer ${
-                      file
-                        ? 'border-amber-400/40 bg-amber-400/[0.03]'
-                        : 'border-zinc-800 hover:border-zinc-700 bg-zinc-900/40'
-                    }`}
-                  >
-                    <input
-                      type="file"
-                      accept=".epub"
-                      onChange={handleFileChange}
-                      className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                    />
-                    <div className="flex flex-col items-center gap-2">
-                      <BookOpen size={24} className={file ? 'text-amber-400' : 'text-zinc-500'} />
-                      {file ? (
-                        <span className="text-xs font-medium text-zinc-200 truncate max-w-full">
-                          {file.name}
-                        </span>
-                      ) : (
-                        <span className="text-xs text-zinc-400">
-                          Click or drag EPUB file here
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                </label>
-
-                <div>
-                  <Label>Book Title</Label>
-                  <Input
-                    value={title}
-                    onChange={(e) => setTitle(e.target.value)}
-                    placeholder="e.g. Kokoro"
-                    required
-                  />
-                </div>
-
-                <div>
-                  <Label>Language</Label>
-                  <Segmented
-                    value={language}
-                    onChange={(v) => {
-                      setLanguage(v);
-                      setAnalysis(null);
-                    }}
-                    className="w-full"
-                    options={[
-                      { value: 'japanese', label: '🇯🇵 Japanese' },
-                      { value: 'english', label: '🇺🇸 English' },
-                    ]}
-                  />
-                </div>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <Label>Start Page</Label>
-                    <Input
-                      type="number"
-                      min={1}
-                      value={startPage}
-                      onChange={(e) => setStartPage(parseInt(e.target.value) || 1)}
-                    />
-                  </div>
-                  <div>
-                    <Label>End Page</Label>
-                    <Input
-                      type="number"
-                      min={1}
-                      value={endPage}
-                      onChange={(e) => setEndPage(parseInt(e.target.value) || 1)}
-                    />
-                  </div>
-                </div>
-
-                {/* Analyze Button */}
-                <Button
-                  type="button"
-                  onClick={handleAnalyze}
-                  disabled={!file}
-                  loading={analyzing}
-                  variant="secondary"
-                  fullWidth
-                >
-                  {!analyzing && <BarChart2 size={14} />}
-                  {analyzing ? 'Analyzing…' : 'Preview Comprehension'}
-                </Button>
-
-                {/* Analysis Preview Cards */}
-                {analysis && (
-                  <div className="p-4 rounded-xl bg-zinc-900 border border-zinc-800 space-y-3">
-                    <div className="flex items-center justify-between">
-                      <span className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
-                        Comprehension Stats
-                      </span>
-                      <Badge variant="muted">Preview</Badge>
-                    </div>
-                    <div className="grid grid-cols-2 gap-2.5">
-                      <div className="p-3 rounded-lg bg-zinc-950 border border-zinc-800">
-                        <div className="text-[10px] text-zinc-500">Full Book</div>
-                        <div className="font-display text-xl text-emerald-400">
-                          {analysis.full_book_stats.percentage}%
-                        </div>
-                        <div className="text-[10px] text-zinc-500 mt-1">
-                          {analysis.full_book_stats.known_words}/{analysis.full_book_stats.total_unique_words} words
-                        </div>
-                      </div>
-
-                      <div className="p-3 rounded-lg bg-zinc-950 border border-zinc-800">
-                        <div className="text-[10px] text-zinc-500">
-                          Pages {startPage}–{endPage}
-                        </div>
-                        <div className="font-display text-xl text-amber-400">
-                          {analysis.range_stats.percentage}%
-                        </div>
-                        <div className="text-[10px] text-zinc-500 mt-1">
-                          {analysis.range_stats.known_words}/{analysis.range_stats.total_unique_words} words
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </form>
+              <button
+                onClick={() => setDrawerOpen(false)}
+                className="p-2 rounded-lg text-zinc-500 hover:text-zinc-100 hover:bg-zinc-900"
+              >
+                <X size={18} />
+              </button>
             </div>
 
-            {/* Bottom Form Submit */}
-            <div className="pt-4 border-t border-zinc-800">
-              <Button
-                type="submit"
-                form="epub-upload-form"
-                disabled={!file || !title}
-                loading={loading}
-                fullWidth
-                size="lg"
-              >
-                {!loading && <Sparkles size={16} />}
-                {loading ? 'Processing…' : 'Save to Library'}
+            <div className="flex-1 py-6 space-y-5">
+              <label className="block">
+                <div className="border border-dashed border-zinc-800 rounded-xl p-8 text-center hover:border-amber-400/30 transition-colors cursor-pointer">
+                  <input
+                    type="file"
+                    accept=".epub"
+                    className="hidden"
+                    onChange={(event) => setSelectedFile(event.target.files?.[0] ?? null)}
+                  />
+
+                  <Upload size={24} className="mx-auto text-amber-400/70" />
+                  <div className="text-sm text-zinc-300 mt-3">
+                    {selectedFile ? selectedFile.name : 'Choose an EPUB'}
+                  </div>
+                  <div className="text-xs text-zinc-600 mt-1">Processed locally in your browser</div>
+                </div>
+              </label>
+
+              <div>
+                <label className="block text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-400 mb-2">
+                  Book title
+                </label>
+                <Input
+                  value={title}
+                  onChange={(event) => setTitle(event.target.value)}
+                  placeholder="e.g. Kokoro"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-400 mb-2">
+                  Language
+                </label>
+                <Segmented
+                  value={language}
+                  onChange={(value) => setLanguage(value as BookLanguage)}
+                  className="w-full"
+                  options={[
+                    { value: 'japanese', label: '🇯🇵 Japanese' },
+                    { value: 'english', label: '🇺🇸 English' },
+                  ]}
+                />
+              </div>
+
+              {importProgress && (
+                <div className="rounded-xl border border-amber-400/10 bg-amber-400/[0.025] p-4">
+                  <div className="text-xs font-medium text-zinc-300">Local processing</div>
+                  <p className="text-xs text-zinc-500 leading-relaxed mt-1.5">{importProgress}</p>
+                </div>
+              )}
+
+              <div className="rounded-xl border border-amber-400/10 bg-amber-400/[0.025] p-4">
+                <div className="text-xs font-medium text-zinc-300">Local-first reading</div>
+                <p className="text-xs text-zinc-600 leading-relaxed mt-1.5">
+                  The EPUB itself is processed and stored on this device. The book file is not sent through the current app flow to your backend.
+                </p>
+              </div>
+            </div>
+
+            <div className="pt-5 border-t border-zinc-800">
+              <Button fullWidth size="lg" disabled={!selectedFile || Boolean(importProgress)} onClick={handleImport}>
+                <Sparkles size={15} />
+                {importProgress ? 'Importing…' : 'Import Book'}
               </Button>
             </div>
           </div>
         </div>
       )}
+    </div>
+  );
+};
+
+const StatCard: React.FC<{
+  icon: React.ReactNode;
+  label: string;
+  value: string;
+}> = ({ icon, label, value }) => (
+  <Card className="p-4">
+    <div className="flex items-center gap-3">
+      <div className="w-9 h-9 rounded-xl bg-amber-400/10 border border-amber-400/20 text-amber-400 grid place-items-center">
+        {icon}
+      </div>
+      <div>
+        <div className="text-[10px] uppercase tracking-wider font-semibold text-zinc-600">{label}</div>
+        <div className="text-lg font-semibold text-zinc-100 mt-0.5">{value}</div>
+      </div>
+    </div>
+  </Card>
+);
+
+const PracticeCard: React.FC<{
+  label: string;
+  title: string;
+  description: string;
+  icon: React.ReactNode;
+  action: string;
+  onClick: () => void;
+}> = ({ label, title, description, icon, action, onClick }) => (
+  <Card className="p-5 flex flex-col justify-between min-h-[180px]">
+    <div>
+      <div className="flex items-center gap-2 text-amber-400">
+        {icon}
+        <span className="text-[10px] uppercase tracking-wider font-semibold">{label}</span>
+      </div>
+      <h3 className="text-base font-semibold text-zinc-100 mt-4">{title}</h3>
+      <p className="text-xs text-zinc-600 leading-relaxed mt-1.5">{description}</p>
+    </div>
+    <div className="mt-5">
+      <Button variant="secondary" size="sm" onClick={onClick}>{action}</Button>
+    </div>
+  </Card>
+);
+
+const BookCard: React.FC<{
+  book: BookSummary;
+  onOpen: () => void;
+  onDelete: (event: React.MouseEvent) => void;
+  onStatusChange: (status: BookStatus) => void;
+}> = ({ book, onOpen, onDelete, onStatusChange }) => {
+  const [statusOpen, setStatusOpen] = useState(false);
+
+  return (
+    <div
+      onClick={onOpen}
+      className="group cursor-pointer rounded-xl overflow-hidden border border-zinc-800/80 bg-zinc-900/40 hover:border-amber-400/40 hover:-translate-y-1 transition-all duration-200"
+    >
+      <div className="relative aspect-[2/3] bg-gradient-to-br from-zinc-900 via-zinc-950 to-amber-950/20 flex items-center justify-center">
+        <Book size={36} className="text-amber-400/25" />
+
+        <button
+          type="button"
+          onClick={onDelete}
+          className="absolute top-2 right-2 p-1.5 rounded-md bg-zinc-950/80 text-zinc-500 hover:text-rose-300 opacity-0 group-hover:opacity-100 transition-all"
+          title="Remove book"
+        >
+          <Trash2 size={13} />
+        </button>
+
+        <div className="absolute bottom-2 left-2">
+          <Badge variant="gold">{book.language === 'japanese' ? 'JP' : 'EN'}</Badge>
+        </div>
+      </div>
+
+      <div className="p-3.5">
+        <h3 className="text-xs font-semibold text-zinc-100 truncate" title={book.title}>{book.title}</h3>
+
+        <div className="relative mt-2" onClick={(event) => event.stopPropagation()}>
+          <button
+            type="button"
+            onClick={() => setStatusOpen((value) => !value)}
+            className="w-full text-left text-[10px] px-2 py-1.5 rounded-md bg-zinc-950 border border-zinc-800 text-zinc-400"
+          >
+            {book.status === 'learning' ? 'Learning' : book.status === 'on_hold' ? 'On Hold' : 'Completed'}
+          </button>
+
+          {statusOpen && (
+            <div className="absolute z-20 left-0 right-0 top-full mt-1 rounded-lg border border-zinc-700 bg-zinc-900 shadow-xl overflow-hidden">
+              {(['learning', 'on_hold', 'completed'] as BookStatus[]).map((status) => (
+                <button
+                  key={status}
+                  type="button"
+                  onClick={() => {
+                    setStatusOpen(false);
+                    onStatusChange(status);
+                  }}
+                  className="w-full text-left px-3 py-2 text-[11px] text-zinc-300 hover:bg-zinc-800"
+                >
+                  {status === 'learning' ? 'Learning' : status === 'on_hold' ? 'On Hold' : 'Completed'}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="mt-3">
+          <div className="flex justify-between text-[10px] text-zinc-600 mb-1">
+            <span>Mastery</span>
+            <span className="text-emerald-400">{book.mastery}%</span>
+          </div>
+
+          <div className="h-1 bg-zinc-950 rounded-full overflow-hidden">
+            <div className="h-full bg-emerald-400 rounded-full" style={{ width: `${book.mastery}%` }} />
+          </div>
+        </div>
+      </div>
     </div>
   );
 };

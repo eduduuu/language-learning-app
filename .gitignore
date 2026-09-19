@@ -14,3 +14,4 @@ frontend/node_modules/
 # Local testing books
 *.epub
 *.pdf
+frontend/public/dict/

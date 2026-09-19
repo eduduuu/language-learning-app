@@ -2,17 +2,45 @@ import React, { useState } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { Layout } from './components/Layout';
 import { AuthModal } from './components/AuthModal';
-import { HomeDashboard } from './pages/HomeDashboard'; // <-- 1. Import the new dashboard
+
+import { HomeDashboard } from './pages/HomeDashboard';
+import { Reader } from './pages/Reader';
 import { Vocabulary } from './pages/Vocabulary';
 import { Quiz } from './pages/Quiz';
 import { Analytics } from './pages/Analytics';
 import { Settings } from './pages/Settings';
 
+type AppTab =
+  | 'home'
+  | 'reader'
+  | 'vocab'
+  | 'quiz'
+  | 'analytics'
+  | 'settings';
+
+interface NavigationParams {
+  bookId?: string;
+}
+
 export const AppContent: React.FC = () => {
   const { user } = useAuth();
-  
-  // 2. Change the default tab to 'home' to match your Layout sidebar ID
-  const [activeTab, setActiveTab] = useState<string>('home');
+
+  const [activeTab, setActiveTab] =
+    useState<AppTab>('home');
+
+  const [selectedBookId, setSelectedBookId] =
+    useState<string | null>(null);
+
+  const navigate = (
+    tab: AppTab,
+    params?: NavigationParams
+  ) => {
+    if (params?.bookId) {
+      setSelectedBookId(params.bookId);
+    }
+
+    setActiveTab(tab);
+  };
 
   if (!user) {
     return (
@@ -23,19 +51,45 @@ export const AppContent: React.FC = () => {
   }
 
   return (
-    <Layout activeTab={activeTab} setActiveTab={setActiveTab}>
-      
-      {/* 3. Render HomeDashboard and pass setActiveTab into its onNavigate prop */}
+    <Layout
+      activeTab={
+        activeTab === 'reader'
+          ? 'home'
+          : activeTab
+      }
+      setActiveTab={(tab) =>
+        navigate(tab as AppTab)
+      }
+    >
       {activeTab === 'home' && (
-        <HomeDashboard 
-          onNavigate={(tab) => setActiveTab(tab)} 
+        <HomeDashboard
+          onNavigate={navigate}
         />
       )}
-      
-      {activeTab === 'vocab' && <Vocabulary />}
-      {activeTab === 'quiz' && <Quiz />}
-      {activeTab === 'analytics' && <Analytics />}
-      {activeTab === 'settings' && <Settings />}
+
+      {activeTab === 'reader' &&
+        selectedBookId && (
+          <Reader
+            bookId={selectedBookId}
+            onNavigate={(tab) => navigate(tab)}
+          />
+        )}
+
+      {activeTab === 'vocab' && (
+        <Vocabulary />
+      )}
+
+      {activeTab === 'quiz' && (
+        <Quiz />
+      )}
+
+      {activeTab === 'analytics' && (
+        <Analytics />
+      )}
+
+      {activeTab === 'settings' && (
+        <Settings />
+      )}
     </Layout>
   );
 };
