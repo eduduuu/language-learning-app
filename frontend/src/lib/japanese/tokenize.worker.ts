@@ -1,130 +1,180 @@
 import kuromoji from 'kuromoji';
-import type { BookLanguage, LocalToken } from '../../types/book';
 
-let tokenizer: kuromoji.Tokenizer<kuromoji.IpadicFeatures> | null = null;
-let initAttempted = false;
+let tokenizer:
+  | kuromoji.Tokenizer<kuromoji.IpadicFeatures>
+  | null = null;
 
-type SegmenterConstructor = new (
-  locales?: string | string[],
-  options?: { granularity?: 'grapheme' | 'word' | 'sentence' }
-) => {
-  segment(input: string): Iterable<{
-    segment: string;
-    isWordLike?: boolean;
-  }>;
-};
+let initializationPromise:
+  | Promise<
+      kuromoji.Tokenizer<kuromoji.IpadicFeatures> | null
+    >
+  | null = null;
 
-function getSegmenter(language: BookLanguage): InstanceType<SegmenterConstructor> | null {
-  const Segmenter = (
-    Intl as typeof Intl & { Segmenter?: SegmenterConstructor }
-  ).Segmenter;
-
-  if (!Segmenter) return null;
-
-  return new Segmenter(language === 'japanese' ? 'ja' : 'en', {
-    granularity: 'word',
-  });
-}
-
-function fallbackTokenize(text: string, language: BookLanguage): LocalToken[] {
-  const segmenter = getSegmenter(language);
-
-  if (segmenter) {
-    return Array.from(segmenter.segment(text)).map((part, index) => ({
-      id: `fallback-${index}`,
-      surface: part.segment,
-      lemma: part.segment,
-      dictionaryForm: part.segment,
-      isWordLike: part.isWordLike !== false,
-    }));
+function initializeTokenizer(
+  dictionaryPath: string,
+) {
+  if (tokenizer) {
+    return Promise.resolve(tokenizer);
   }
 
-  const parts = text.match(
-    language === 'japanese'
-      ? /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]+|[A-Za-z0-9]+|[^\p{L}\p{N}\s]/gu
-      : /[A-Za-z0-9]+|[^\p{L}\p{N}\s]/gu
-  ) ?? [];
+  if (initializationPromise) {
+    return initializationPromise;
+  }
 
-  return parts.map((surface, index) => ({
-    id: `fallback-${index}`,
-    surface,
-    lemma: surface,
-    dictionaryForm: surface,
-    isWordLike: /[\p{L}\p{N}]/u.test(surface),
-  }));
+  initializationPromise =
+    new Promise((resolve) => {
+      kuromoji
+        .builder({
+          dicPath: dictionaryPath,
+        })
+        .build((error, result) => {
+          if (error) {
+            console.error(
+              'Kuromoji initialization failed',
+              error,
+            );
+
+            resolve(null);
+            return;
+          }
+
+          tokenizer = result;
+
+          resolve(result);
+        });
+    });
+
+  return initializationPromise;
 }
 
-function initTokenizer(dictPath: string) {
-  if (tokenizer || initAttempted) return Promise.resolve(tokenizer);
+function fallbackTokenize(
+  text: string,
+) {
+  const parts =
+    text.match(
+      /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]+|[A-Za-z0-9]+|[^\p{L}\p{N}\s]/gu,
+    ) ?? [];
 
-  initAttempted = true;
-
-  return new Promise<kuromoji.Tokenizer<kuromoji.IpadicFeatures> | null>(
-    (resolve) => {
-      kuromoji.builder({ dicPath: dictPath }).build((err, built) => {
-        if (err) {
-          console.warn(
-            'Kuromoji dictionary could not be loaded; using Intl.Segmenter.',
-            err
-          );
-          resolve(null);
-          return;
-        }
-
-        tokenizer = built;
-        resolve(built);
-      });
-    }
+  return parts.map(
+    (surface, index) => ({
+      id: `fallback-${index}`,
+      surface,
+      lemma: surface,
+      dictionaryForm: surface,
+      isWordLike:
+        /[\p{L}\p{N}]/u.test(
+          surface,
+        ),
+    }),
   );
 }
 
-self.onmessage = async (event: MessageEvent) => {
-  const { type, payload, id } = event.data ?? {};
+self.onmessage = async (
+  event: MessageEvent,
+) => {
+  const {
+    id,
+    type,
+    payload,
+  } = event.data ?? {};
 
   try {
     if (type === 'INIT') {
-      // INIT must always answer. The client has a 5s timeout as a second
-      // safety net for a broken/missing dictionary.
-      await initTokenizer(payload?.dictPath ?? '/dict/');
-      self.postMessage({ type: 'INIT_SUCCESS' });
-      return;
-    }
-
-    if (type !== 'TOKENIZE') return;
-
-    const language: BookLanguage =
-      payload?.language === 'english' ? 'english' : 'japanese';
-
-    if (language === 'japanese' && tokenizer) {
-      const tokens = tokenizer.tokenize(payload.text);
+      await initializeTokenizer(
+        payload?.dictPath ?? '/dict/',
+      );
 
       self.postMessage({
-        id,
-        type: 'TOKENIZE_SUCCESS',
-        payload: tokens.map((token, index) => ({
-          id: `worker-${index}`,
-          surface: token.surface_form,
-          lemma:
-            token.basic_form !== '*' ? token.basic_form : token.surface_form,
-          dictionaryForm:
-            token.basic_form !== '*' ? token.basic_form : token.surface_form,
-          isWordLike: token.pos !== '記号',
-        })),
+        type: 'INIT_SUCCESS',
       });
 
       return;
     }
+
+    if (type !== 'TOKENIZE') {
+      return;
+    }
+
+    const text =
+      payload?.text ?? '';
+
+    if (!tokenizer) {
+      self.postMessage({
+        id,
+        type: 'TOKENIZE_SUCCESS',
+        payload:
+          fallbackTokenize(text),
+      });
+
+      return;
+    }
+
+    const rawTokens =
+      tokenizer.tokenize(text);
+
+    const tokens =
+      rawTokens.map(
+        (token, index) => {
+          const features =
+            token;
+
+          const surface =
+            features.surface_form;
+
+          const dictionaryForm =
+            features.basic_form !== '*'
+              ? features.basic_form
+              : surface;
+
+          const reading =
+            features.reading !== '*'
+              ? features.reading
+              : undefined;
+
+          const partOfSpeech =
+            [
+              features.pos,
+              features.pos_detail_1,
+            ]
+              .filter(
+                Boolean,
+              )
+              .join(',');
+
+          return {
+            id: `token-${index}`,
+
+            surface,
+
+            lemma:
+              dictionaryForm,
+
+            dictionaryForm,
+
+            reading,
+
+            partOfSpeech,
+
+            isWordLike:
+              features.pos !==
+              '記号',
+          };
+        },
+      );
 
     self.postMessage({
       id,
       type: 'TOKENIZE_SUCCESS',
-      payload: fallbackTokenize(payload.text, language),
+      payload: tokens,
     });
   } catch (error) {
     self.postMessage({
       id,
       type: 'ERROR',
-      error: error instanceof Error ? error.message : String(error),
+      error:
+        error instanceof Error
+          ? error.message
+          : String(error),
     });
   }
 };

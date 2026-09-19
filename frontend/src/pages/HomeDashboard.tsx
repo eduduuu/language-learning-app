@@ -18,10 +18,8 @@ import {
   createLocalBookFromEpub,
   deleteLocalBook,
   listLocalBooks,
-  seedMockBooks,
   updateLocalBookStatus,
 } from '../lib/localBookStore';
-import { useAuth } from '../context/AuthContext';
 import type { BookLanguage, BookStatus, BookSummary } from '../types/book';
 
 interface HomeDashboardProps {
@@ -29,8 +27,6 @@ interface HomeDashboardProps {
 }
 
 export const HomeDashboard: React.FC<HomeDashboardProps> = ({ onNavigate }) => {
-  const { user } = useAuth();
-
   const [books, setBooks] = useState<BookSummary[]>([]);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | BookStatus>('all');
@@ -40,53 +36,65 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({ onNavigate }) => {
   const [language, setLanguage] = useState<BookLanguage>('japanese');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [importProgress, setImportProgress] = useState<string | null>(null);
+  const [importing, setImporting] = useState(false);
   const [loading, setLoading] = useState(true);
 
   const refreshBooks = async () => {
     setLoading(true);
     try {
       setBooks(await listLocalBooks());
+    } catch (error) {
+      console.error('Failed to load local library:', error);
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    let cancelled = false;
-
-    const initialize = async () => {
-      await seedMockBooks();
-      if (!cancelled) await refreshBooks();
-    };
-
-    initialize().catch((error) => {
-      console.error('Failed to initialize local library:', error);
-      if (!cancelled) setLoading(false);
-    });
-
-    return () => {
-      cancelled = true;
-    };
+    void refreshBooks();
   }, []);
 
-  const activeBook = books.find((book) => book.status === 'learning') ?? books[0];
+  const activeBook =
+    books.find((book) => book.status === 'learning') ?? books[0];
 
   const filteredBooks = useMemo(() => {
     const query = search.trim().toLowerCase();
 
     return books.filter((book) => {
-      const statusMatches = statusFilter === 'all' || book.status === statusFilter;
-      const searchMatches = !query || book.title.toLowerCase().includes(query);
+      const statusMatches =
+        statusFilter === 'all' || book.status === statusFilter;
+
+      const searchMatches =
+        !query || book.title.toLowerCase().includes(query);
+
       return statusMatches && searchMatches;
     });
   }, [books, search, statusFilter]);
 
-  const handleImport = async () => {
-    if (!selectedFile) return;
+  const closeDrawer = () => {
+    if (importing) return;
 
-    const bookTitle = title.trim() || selectedFile.name.replace(/\.epub$/i, '');
+    setDrawerOpen(false);
+    setSelectedFile(null);
+    setTitle('');
+    setLanguage('japanese');
+    setImportProgress(null);
+  };
+
+  const handleImport = async () => {
+    if (!selectedFile || importing) return;
+
+    if (!selectedFile.name.toLowerCase().endsWith('.epub')) {
+      setImportProgress('Please select an EPUB file.');
+      return;
+    }
+
+    const bookTitle =
+      title.trim() ||
+      selectedFile.name.replace(/\.epub$/i, '');
 
     try {
+      setImporting(true);
       setImportProgress('Starting local import…');
 
       const created = await createLocalBookFromEpub(
@@ -112,21 +120,39 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({ onNavigate }) => {
           ? error.message
           : 'Failed to import EPUB.'
       );
+    } finally {
+      setImporting(false);
     }
   };
 
-  const handleDelete = async (bookId: string, event: React.MouseEvent) => {
+  const handleDelete = async (
+    bookId: string,
+    event: React.MouseEvent
+  ) => {
     event.stopPropagation();
 
-    if (!window.confirm('Remove this book from your local library?')) return;
+    if (!window.confirm('Remove this book from your local library?')) {
+      return;
+    }
 
-    await deleteLocalBook(bookId);
-    await refreshBooks();
+    try {
+      await deleteLocalBook(bookId);
+      await refreshBooks();
+    } catch (error) {
+      console.error('Failed to delete local book:', error);
+    }
   };
 
-  const handleStatusChange = async (bookId: string, status: BookStatus) => {
-    await updateLocalBookStatus(bookId, status);
-    await refreshBooks();
+  const handleStatusChange = async (
+    bookId: string,
+    status: BookStatus
+  ) => {
+    try {
+      await updateLocalBookStatus(bookId, status);
+      await refreshBooks();
+    } catch (error) {
+      console.error('Failed to update book status:', error);
+    }
   };
 
   return (
@@ -167,20 +193,27 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({ onNavigate }) => {
 
               <div>
                 <Badge variant="gold">Continue Reading</Badge>
-                <h2 className="font-display text-3xl text-zinc-50 mt-3">{activeBook.title}</h2>
+                <h2 className="font-display text-3xl text-zinc-50 mt-3">
+                  {activeBook.title}
+                </h2>
 
                 <div className="flex flex-wrap items-center gap-3 mt-2 text-xs text-zinc-500">
                   <span>
-                    {activeBook.knownWords.toLocaleString()} / {activeBook.totalWords.toLocaleString()} words
+                    {activeBook.knownWords.toLocaleString()} /{' '}
+                    {activeBook.totalWords.toLocaleString()} words
                   </span>
                   <span>•</span>
-                  <span className="text-emerald-400">{activeBook.mastery}% mastery</span>
+                  <span className="text-emerald-400">
+                    {activeBook.mastery}% mastery
+                  </span>
                 </div>
 
                 <div className="mt-4 w-56 h-1.5 rounded-full bg-zinc-800 overflow-hidden">
                   <div
                     className="h-full rounded-full bg-emerald-400"
-                    style={{ width: `${activeBook.mastery}%` }}
+                    style={{
+                      width: `${Math.min(100, Math.max(0, activeBook.mastery))}%`,
+                    }}
                   />
                 </div>
               </div>
@@ -188,7 +221,9 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({ onNavigate }) => {
 
             <Button
               size="lg"
-              onClick={() => onNavigate?.('reader', { bookId: activeBook.id })}
+              onClick={() =>
+                onNavigate?.('reader', { bookId: activeBook.id })
+              }
             >
               <BookOpen size={16} />
               Continue Reading
@@ -231,7 +266,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({ onNavigate }) => {
           <div>
             <h2 className="font-display text-3xl text-zinc-100">My Library</h2>
             <p className="text-xs text-zinc-600 mt-1">
-              Your books are stored locally on this device.
+              Your EPUB content is stored locally on this device. Learning metadata can sync to the backend.
             </p>
           </div>
 
@@ -245,7 +280,9 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({ onNavigate }) => {
 
             <Segmented
               value={statusFilter}
-              onChange={(value) => setStatusFilter(value as 'all' | BookStatus)}
+              onChange={(value) =>
+                setStatusFilter(value as 'all' | BookStatus)
+              }
               options={[
                 { value: 'all', label: 'All' },
                 { value: 'learning', label: 'Learning' },
@@ -263,8 +300,12 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({ onNavigate }) => {
         ) : filteredBooks.length === 0 ? (
           <Card className="p-12 text-center">
             <Book size={28} className="mx-auto text-zinc-700" />
-            <h3 className="text-sm font-semibold text-zinc-200 mt-4">No books found</h3>
-            <p className="text-xs text-zinc-600 mt-2">Add a book to start building your local library.</p>
+            <h3 className="text-sm font-semibold text-zinc-200 mt-4">
+              No books found
+            </h3>
+            <p className="text-xs text-zinc-600 mt-2">
+              Add a book to start building your local library.
+            </p>
             <div className="mt-5">
               <Button onClick={() => setDrawerOpen(true)}>
                 <Plus size={14} />
@@ -278,9 +319,13 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({ onNavigate }) => {
               <BookCard
                 key={book.id}
                 book={book}
-                onOpen={() => onNavigate?.('reader', { bookId: book.id })}
+                onOpen={() =>
+                  onNavigate?.('reader', { bookId: book.id })
+                }
                 onDelete={(event) => handleDelete(book.id, event)}
-                onStatusChange={(status) => handleStatusChange(book.id, status)}
+                onStatusChange={(status) =>
+                  handleStatusChange(book.id, status)
+                }
               />
             ))}
           </div>
@@ -295,12 +340,16 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({ onNavigate }) => {
                 <div className="text-xs uppercase tracking-[0.18em] text-amber-400 font-semibold">
                   Library
                 </div>
-                <h2 className="font-display text-2xl text-zinc-100 mt-1">Add Book</h2>
+                <h2 className="font-display text-2xl text-zinc-100 mt-1">
+                  Add Book
+                </h2>
               </div>
 
               <button
-                onClick={() => setDrawerOpen(false)}
-                className="p-2 rounded-lg text-zinc-500 hover:text-zinc-100 hover:bg-zinc-900"
+                type="button"
+                disabled={importing}
+                onClick={closeDrawer}
+                className="p-2 rounded-lg text-zinc-500 hover:text-zinc-100 hover:bg-zinc-900 disabled:opacity-40"
               >
                 <X size={18} />
               </button>
@@ -311,16 +360,23 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({ onNavigate }) => {
                 <div className="border border-dashed border-zinc-800 rounded-xl p-8 text-center hover:border-amber-400/30 transition-colors cursor-pointer">
                   <input
                     type="file"
-                    accept=".epub"
+                    accept=".epub,application/epub+zip"
                     className="hidden"
-                    onChange={(event) => setSelectedFile(event.target.files?.[0] ?? null)}
+                    disabled={importing}
+                    onChange={(event) =>
+                      setSelectedFile(event.target.files?.[0] ?? null)
+                    }
                   />
 
                   <Upload size={24} className="mx-auto text-amber-400/70" />
                   <div className="text-sm text-zinc-300 mt-3">
-                    {selectedFile ? selectedFile.name : 'Choose an EPUB'}
+                    {selectedFile
+                      ? selectedFile.name
+                      : 'Choose an EPUB'}
                   </div>
-                  <div className="text-xs text-zinc-600 mt-1">Processed locally in your browser</div>
+                  <div className="text-xs text-zinc-600 mt-1">
+                    Processed locally in your browser
+                  </div>
                 </div>
               </label>
 
@@ -332,6 +388,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({ onNavigate }) => {
                   value={title}
                   onChange={(event) => setTitle(event.target.value)}
                   placeholder="e.g. Kokoro"
+                  disabled={importing}
                 />
               </div>
 
@@ -341,7 +398,9 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({ onNavigate }) => {
                 </label>
                 <Segmented
                   value={language}
-                  onChange={(value) => setLanguage(value as BookLanguage)}
+                  onChange={(value) =>
+                    setLanguage(value as BookLanguage)
+                  }
                   className="w-full"
                   options={[
                     { value: 'japanese', label: '🇯🇵 Japanese' },
@@ -352,23 +411,34 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({ onNavigate }) => {
 
               {importProgress && (
                 <div className="rounded-xl border border-amber-400/10 bg-amber-400/[0.025] p-4">
-                  <div className="text-xs font-medium text-zinc-300">Local processing</div>
-                  <p className="text-xs text-zinc-500 leading-relaxed mt-1.5">{importProgress}</p>
+                  <div className="text-xs font-medium text-zinc-300">
+                    Local processing
+                  </div>
+                  <p className="text-xs text-zinc-500 leading-relaxed mt-1.5">
+                    {importProgress}
+                  </p>
                 </div>
               )}
 
               <div className="rounded-xl border border-amber-400/10 bg-amber-400/[0.025] p-4">
-                <div className="text-xs font-medium text-zinc-300">Local-first reading</div>
+                <div className="text-xs font-medium text-zinc-300">
+                  Local-first reading
+                </div>
                 <p className="text-xs text-zinc-600 leading-relaxed mt-1.5">
-                  The EPUB itself is processed and stored on this device. The book file is not sent through the current app flow to your backend.
+                  The EPUB is parsed and stored on this device. Only learning metadata and vocabulary are synchronized with the backend.
                 </p>
               </div>
             </div>
 
             <div className="pt-5 border-t border-zinc-800">
-              <Button fullWidth size="lg" disabled={!selectedFile || Boolean(importProgress)} onClick={handleImport}>
+              <Button
+                fullWidth
+                size="lg"
+                disabled={!selectedFile || importing}
+                onClick={() => void handleImport()}
+              >
                 <Sparkles size={15} />
-                {importProgress ? 'Importing…' : 'Import Book'}
+                {importing ? 'Importing…' : 'Import Book'}
               </Button>
             </div>
           </div>
@@ -389,8 +459,12 @@ const StatCard: React.FC<{
         {icon}
       </div>
       <div>
-        <div className="text-[10px] uppercase tracking-wider font-semibold text-zinc-600">{label}</div>
-        <div className="text-lg font-semibold text-zinc-100 mt-0.5">{value}</div>
+        <div className="text-[10px] uppercase tracking-wider font-semibold text-zinc-600">
+          {label}
+        </div>
+        <div className="text-lg font-semibold text-zinc-100 mt-0.5">
+          {value}
+        </div>
       </div>
     </div>
   </Card>
@@ -408,13 +482,21 @@ const PracticeCard: React.FC<{
     <div>
       <div className="flex items-center gap-2 text-amber-400">
         {icon}
-        <span className="text-[10px] uppercase tracking-wider font-semibold">{label}</span>
+        <span className="text-[10px] uppercase tracking-wider font-semibold">
+          {label}
+        </span>
       </div>
-      <h3 className="text-base font-semibold text-zinc-100 mt-4">{title}</h3>
-      <p className="text-xs text-zinc-600 leading-relaxed mt-1.5">{description}</p>
+      <h3 className="text-base font-semibold text-zinc-100 mt-4">
+        {title}
+      </h3>
+      <p className="text-xs text-zinc-600 leading-relaxed mt-1.5">
+        {description}
+      </p>
     </div>
     <div className="mt-5">
-      <Button variant="secondary" size="sm" onClick={onClick}>{action}</Button>
+      <Button variant="secondary" size="sm" onClick={onClick}>
+        {action}
+      </Button>
     </div>
   </Card>
 );
@@ -433,7 +515,15 @@ const BookCard: React.FC<{
       className="group cursor-pointer rounded-xl overflow-hidden border border-zinc-800/80 bg-zinc-900/40 hover:border-amber-400/40 hover:-translate-y-1 transition-all duration-200"
     >
       <div className="relative aspect-[2/3] bg-gradient-to-br from-zinc-900 via-zinc-950 to-amber-950/20 flex items-center justify-center">
-        <Book size={36} className="text-amber-400/25" />
+        {book.coverUrl ? (
+          <img
+            src={book.coverUrl}
+            alt=""
+            className="w-full h-full object-cover"
+          />
+        ) : (
+          <Book size={36} className="text-amber-400/25" />
+        )}
 
         <button
           type="button"
@@ -445,37 +535,57 @@ const BookCard: React.FC<{
         </button>
 
         <div className="absolute bottom-2 left-2">
-          <Badge variant="gold">{book.language === 'japanese' ? 'JP' : 'EN'}</Badge>
+          <Badge variant="gold">
+            {book.language === 'japanese' ? 'JP' : 'EN'}
+          </Badge>
         </div>
       </div>
 
       <div className="p-3.5">
-        <h3 className="text-xs font-semibold text-zinc-100 truncate" title={book.title}>{book.title}</h3>
+        <h3
+          className="text-xs font-semibold text-zinc-100 truncate"
+          title={book.title}
+        >
+          {book.title}
+        </h3>
 
-        <div className="relative mt-2" onClick={(event) => event.stopPropagation()}>
+        <div
+          className="relative mt-2"
+          onClick={(event) => event.stopPropagation()}
+        >
           <button
             type="button"
             onClick={() => setStatusOpen((value) => !value)}
             className="w-full text-left text-[10px] px-2 py-1.5 rounded-md bg-zinc-950 border border-zinc-800 text-zinc-400"
           >
-            {book.status === 'learning' ? 'Learning' : book.status === 'on_hold' ? 'On Hold' : 'Completed'}
+            {book.status === 'learning'
+              ? 'Learning'
+              : book.status === 'on_hold'
+                ? 'On Hold'
+                : 'Completed'}
           </button>
 
           {statusOpen && (
             <div className="absolute z-20 left-0 right-0 top-full mt-1 rounded-lg border border-zinc-700 bg-zinc-900 shadow-xl overflow-hidden">
-              {(['learning', 'on_hold', 'completed'] as BookStatus[]).map((status) => (
-                <button
-                  key={status}
-                  type="button"
-                  onClick={() => {
-                    setStatusOpen(false);
-                    onStatusChange(status);
-                  }}
-                  className="w-full text-left px-3 py-2 text-[11px] text-zinc-300 hover:bg-zinc-800"
-                >
-                  {status === 'learning' ? 'Learning' : status === 'on_hold' ? 'On Hold' : 'Completed'}
-                </button>
-              ))}
+              {(['learning', 'on_hold', 'completed'] as BookStatus[]).map(
+                (status) => (
+                  <button
+                    key={status}
+                    type="button"
+                    onClick={() => {
+                      setStatusOpen(false);
+                      onStatusChange(status);
+                    }}
+                    className="w-full text-left px-3 py-2 text-[11px] text-zinc-300 hover:bg-zinc-800"
+                  >
+                    {status === 'learning'
+                      ? 'Learning'
+                      : status === 'on_hold'
+                        ? 'On Hold'
+                        : 'Completed'}
+                  </button>
+                )
+              )}
             </div>
           )}
         </div>
@@ -483,13 +593,26 @@ const BookCard: React.FC<{
         <div className="mt-3">
           <div className="flex justify-between text-[10px] text-zinc-600 mb-1">
             <span>Mastery</span>
-            <span className="text-emerald-400">{book.mastery}%</span>
+            <span className="text-emerald-400">
+              {book.mastery}%
+            </span>
           </div>
 
           <div className="h-1 bg-zinc-950 rounded-full overflow-hidden">
-            <div className="h-full bg-emerald-400 rounded-full" style={{ width: `${book.mastery}%` }} />
+            <div
+              className="h-full bg-emerald-400 rounded-full"
+              style={{
+                width: `${Math.min(100, Math.max(0, book.mastery))}%`,
+              }}
+            />
           </div>
         </div>
+
+        {!book.backendId && (
+          <div className="mt-2 text-[9px] text-zinc-600">
+            Local — sync pending
+          </div>
+        )}
       </div>
     </div>
   );

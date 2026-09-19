@@ -8,12 +8,12 @@ EXCLUDE_DIRS = {
 }
 EXCLUDE_EXTS = {
     '.png', '.jpg', '.jpeg', '.gif', '.ico', '.pdf', '.zip', 
-    '.tar', '.gz', '.pyc', '.lock', '.svg', '.epub', '.mp3'
+    '.tar', '.gz', '.pyc', '.lock', '.svg', '.epub', '.mp3', '.env'
 }
 
 OUTPUT_FILE = "condensed_codebase.txt"
 
-def pack_codebase(root_dir="./frontend/src"):
+def pack_codebase(root_dir="./backend"):
     root_path = Path(root_dir).resolve()
     processed_count = 0
 

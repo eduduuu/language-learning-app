@@ -1,35 +1,145 @@
-# In routers/vocabulary_router.py
+from typing import List
+
 from fastapi import APIRouter, Header
+
 from schemas.vocabulary import (
     VocabGenerateRequest,
     VocabCardResponse,
     SRSReviewRequest,
     SRSReviewResponse,
+    SRSCardCreateRequest,
+    SRSCardResponse,
+    SRSCardListItem,
 )
-from services.srs_service import SRSService
 
-router = APIRouter(prefix="/api/v1/vocab", tags=["Vocabulary & SRS"])
+from services.srs_service import SRSService
+from repositories.srs_repository import SRSRepository
+
+
+router = APIRouter(
+    prefix="/api/v1/vocab",
+    tags=["Vocabulary & SRS"]
+)
+
 srs_service = SRSService()
 
-@router.post("/generate", response_model=VocabCardResponse)
+
+# ============================================================
+# Generate vocabulary card
+# ============================================================
+
+@router.post(
+    "/generate",
+    response_model=VocabCardResponse
+)
 async def generate_vocab_card(
     req: VocabGenerateRequest,
-    x_user_id: str = Header(..., description="Supabase User UUID")
+    x_user_id: str = Header(
+        ...,
+        description="Supabase User UUID"
+    )
 ):
-    return await srs_service.generate_vocab_card(x_user_id, req)
+    return await srs_service.generate_vocab_card(
+        x_user_id,
+        req
+    )
 
-@router.post("/review", response_model=SRSReviewResponse)
+
+# ============================================================
+# Add word to SRS
+# ============================================================
+
+@router.post(
+    "/cards",
+    response_model=SRSCardResponse
+)
+async def add_card_to_srs(
+    req: SRSCardCreateRequest,
+    x_user_id: str = Header(
+        ...,
+        description="Supabase User UUID"
+    )
+):
+
+    card = srs_service.add_card(
+        user_id=x_user_id,
+        word=req.word,
+        language=req.language
+    )
+
+    return SRSCardResponse(
+        word=card["word"],
+        language=card["language"],
+        state=card.get("state", 0),
+        difficulty=card.get("difficulty", 0.0),
+        stability=card.get("stability", 0.0),
+        reps=card.get("reps", 0),
+        lapses=card.get("lapses", 0),
+        next_review_date=card["next_review_date"],
+        last_reviewed=card.get("last_reviewed"),
+    )
+
+
+# ============================================================
+# Get user's SRS cards
+# ============================================================
+
+@router.get(
+    "/cards",
+    response_model=List[SRSCardListItem]
+)
+async def get_srs_cards(
+    language: str = "japanese",
+    x_user_id: str = Header(
+        ...,
+        description="Supabase User UUID"
+    )
+):
+
+    cards = SRSRepository.get_all_cards(
+        user_id=x_user_id,
+        language=language
+    )
+
+    return [
+        SRSCardListItem(
+            word=card["word"],
+            language=card["language"],
+            state=card.get("state", 0),
+            difficulty=card.get("difficulty", 0.0),
+            stability=card.get("stability", 0.0),
+            reps=card.get("reps", 0),
+            lapses=card.get("lapses", 0),
+            next_review_date=card["next_review_date"],
+            last_reviewed=card.get("last_reviewed"),
+        )
+        for card in cards
+    ]
+
+
+# ============================================================
+# Review card
+# ============================================================
+
+@router.post(
+    "/review",
+    response_model=SRSReviewResponse
+)
 async def review_card(
     req: SRSReviewRequest,
-    x_user_id: str = Header(..., description="Supabase User UUID")
+    x_user_id: str = Header(
+        ...,
+        description="Supabase User UUID"
+    )
 ):
+
     card_data = srs_service.process_review(
         user_id=x_user_id,
         word=req.word,
         language=req.language,
         rating=req.rating
     )
-    
+
     return SRSReviewResponse(
         word=card_data["word"],
         next_review_date=card_data["next_review_date"],

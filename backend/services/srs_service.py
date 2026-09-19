@@ -157,3 +157,25 @@ class SRSService:
             lapses=new_lapses,
             next_review_date=scheduled_card.due
         )
+
+    def add_card(
+        self,
+        user_id: str,
+        word: str,
+        language: str
+    ) -> Dict[str, Any]:
+
+        word = word.strip()
+
+        if not word:
+            raise HTTPException(
+                status_code=400,
+                detail="Word cannot be empty."
+            )
+
+        # Repository handles duplicate protection.
+        return SRSRepository.create_new_card(
+            user_id=user_id,
+            word=word,
+            language=language
+        )

@@ -4,12 +4,19 @@ export type BookStatus = 'learning' | 'on_hold' | 'completed';
 
 export interface LocalToken {
   id: string;
-  surface: string;
-  lemma?: string;
-  dictionaryForm?: string;
-  isWordLike?: boolean;
-}
 
+  surface: string;
+
+  lemma: string;
+
+  dictionaryForm: string;
+
+  reading?: string;
+
+  partOfSpeech?: string;
+
+  isWordLike: boolean;
+}
 export interface LocalSentence {
   id: string;
   text: string;
@@ -43,6 +50,7 @@ export interface BookSummary {
   lastOpenedAt: string;
   currentChapterId?: string;
   currentSentenceId?: string;
+  backendId?: string;
 }
 
 export interface LocalBookFile {

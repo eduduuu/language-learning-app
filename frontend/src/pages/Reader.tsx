@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   ArrowLeft,
   BookOpen,
@@ -16,7 +16,16 @@ import {
 
 import { Badge, Button } from '../components/ui';
 import { getLocalBook, touchLocalBook } from '../lib/localBookStore';
-import type { LocalBook, LocalChapter, LocalToken } from '../types/book';
+import {
+  lookupJapanese,
+  type DictionaryEntry,
+} from '../lib/dictionary/japanese';
+import type { LocalBook, LocalToken } from '../types/book';
+import {
+  addSRSCard,
+  getSRSCards,
+  type SRSCard,
+} from '../lib/api';
 
 interface ReaderProps {
   bookId: string;
@@ -26,53 +35,56 @@ interface ReaderProps {
   ) => void;
 }
 
-interface WordInfo {
-  lemma: string;
-  reading: string;
-  meaning: string;
-  jlpt: string;
-  isCard: boolean;
-  mastery?: number;
+interface TokenDetails extends LocalToken {
+  reading?: string;
+  partOfSpeech?: string;
 }
 
-const MOCK_DICTIONARY: Record<string, WordInfo> = {
-  眺める: {
-    lemma: '眺める',
-    reading: 'ながめる',
-    meaning: 'to gaze at; to look out over',
-    jlpt: 'N3',
-    isCard: false,
-  },
-  始まる: {
-    lemma: '始まる',
-    reading: 'はじまる',
-    meaning: 'to begin; to start',
-    jlpt: 'N5',
-    isCard: true,
-    mastery: 82,
-  },
-  歩く: {
-    lemma: '歩く',
-    reading: 'あるく',
-    meaning: 'to walk',
-    jlpt: 'N5',
-    isCard: true,
-    mastery: 91,
-  },
-  見つける: {
-    lemma: '見つける',
-    reading: 'みつける',
-    meaning: 'to find; to discover',
-    jlpt: 'N4',
-    isCard: false,
-  },
-};
 
-export const Reader: React.FC<ReaderProps> = ({ bookId, onNavigate }) => {
+export const Reader: React.FC<ReaderProps> = ({
+  bookId,
+  onNavigate,
+}) => {
   const [book, setBook] = useState<LocalBook | null>(null);
   const [activeChapterIndex, setActiveChapterIndex] = useState(0);
-  const [selectedWord, setSelectedWord] = useState<LocalToken | null>(null);
-  const [savedWords, setSavedWords] = useState<Set<string>>(new Set());
+  const [selectedWord, setSelectedWord] =
+    useState<TokenDetails | null>(null);
+
+  const [savedWords, setSavedWords] =
+  useState<Set<string>>(new Set());
+
+  const [addingWord, setAddingWord] =
+    useState(false);
+
+  useEffect(() => {
+  let mounted = true;
+
+  async function loadSRS() {
+    try {
+      const cards = await getSRSCards('japanese');
+
+      if (!mounted) return;
+
+      setSavedWords(
+        new Set(
+          cards.map((card) => card.word)
+        )
+      );
+    } catch (error) {
+      console.error(
+        'Failed to load SRS cards:',
+        error
+      );
+    }
+  }
+
+  loadSRS();
+
+  return () => {
+    mounted = false;
+  };
+}, []);
+
 
   useEffect(() => {
     let mounted = true;
@@ -83,10 +95,12 @@ export const Reader: React.FC<ReaderProps> = ({ bookId, onNavigate }) => {
       setBook(result);
 
       const index = result.chapters.findIndex(
-        (chapter) => chapter.id === result.summary.currentChapterId
+        (chapter) =>
+          chapter.id === result.summary.currentChapterId
       );
 
       setActiveChapterIndex(index >= 0 ? index : 0);
+
       await touchLocalBook(bookId);
     });
 
@@ -95,40 +109,84 @@ export const Reader: React.FC<ReaderProps> = ({ bookId, onNavigate }) => {
     };
   }, [bookId]);
 
+  const activeChapter = useMemo(() => {
+    if (!book) return null;
+
+    return (
+      book.chapters[activeChapterIndex] ?? null
+    );
+  }, [book, activeChapterIndex]);
+
   if (!book || !book.chapters.length) {
     return (
       <div className="flex items-center justify-center min-h-[500px]">
-        <div className="text-sm text-zinc-500">Loading reader…</div>
+        <div className="text-sm text-zinc-500">
+          Loading reader…
+        </div>
       </div>
     );
   }
-
-  const activeChapter = book.chapters[activeChapterIndex];
 
   if (!activeChapter) {
     return (
       <div className="flex items-center justify-center min-h-[500px]">
-        <div className="text-sm text-zinc-500">Chapter not found.</div>
+        <div className="text-sm text-zinc-500">
+          Chapter not found.
+        </div>
       </div>
     );
   }
 
-  const handleSelectToken = (token: LocalToken) => {
+  const handleSelectToken = (
+    token: LocalToken
+  ) => {
     if (token.isWordLike === false) return;
-    setSelectedWord(token);
+
+    setSelectedWord(token as TokenDetails);
   };
 
-  const handleAddCard = () => {
-    if (!selectedWord) return;
+  const handleAddCard = async () => {
+    if (!selectedWord || addingWord) {
+      return;
+    }
 
-    const key = selectedWord.lemma ?? selectedWord.surface;
+    const word =
+      selectedWord.lemma ||
+      selectedWord.dictionaryForm ||
+      selectedWord.surface;
 
-    setSavedWords((previous) => {
-      const next = new Set(previous);
-      next.add(key);
-      return next;
-    });
+    if (!word.trim()) {
+      return;
+    }
+
+    try {
+      setAddingWord(true);
+
+      const card = await addSRSCard({
+        word,
+        language: 'japanese',
+      });
+
+      setSavedWords((previous) => {
+        const next = new Set(previous);
+        next.add(card.word);
+        return next;
+      });
+
+    } catch (error) {
+      console.error(
+        'Failed to add word to SRS:',
+        error
+      );
+
+      window.alert(
+        'Could not add this word to SRS.'
+      );
+    } finally {
+      setAddingWord(false);
+    }
   };
+
 
   const goToChapter = (index: number) => {
     setSelectedWord(null);
@@ -140,7 +198,11 @@ export const Reader: React.FC<ReaderProps> = ({ bookId, onNavigate }) => {
       <header className="sticky top-0 z-30 -mx-8 lg:-mx-10 px-8 lg:px-10 border-b border-zinc-800/80 bg-zinc-950/90 backdrop-blur-xl">
         <div className="max-w-6xl mx-auto h-16 flex items-center justify-between gap-4">
           <div className="flex items-center gap-3 min-w-0">
-            <Button variant="ghost" size="sm" onClick={() => onNavigate('home')}>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => onNavigate('home')}
+            >
               <ArrowLeft size={15} />
               Library
             </Button>
@@ -148,13 +210,21 @@ export const Reader: React.FC<ReaderProps> = ({ bookId, onNavigate }) => {
             <div className="h-5 w-px bg-zinc-800" />
 
             <div className="min-w-0">
-              <div className="text-sm font-semibold text-zinc-100 truncate">{book.summary.title}</div>
-              <div className="text-[10px] text-zinc-500 uppercase tracking-wider">Reading</div>
+              <div className="text-sm font-semibold text-zinc-100 truncate">
+                {book.summary.title}
+              </div>
+
+              <div className="text-[10px] text-zinc-500 uppercase tracking-wider">
+                Reading
+              </div>
             </div>
           </div>
 
           <div className="hidden sm:flex items-center gap-2">
-            <Badge variant="gold">{book.summary.mastery}% mastery</Badge>
+            <Badge variant="gold">
+              {book.summary.mastery}% mastery
+            </Badge>
+
             <button
               type="button"
               className="p-2 rounded-lg text-zinc-500 hover:text-zinc-100 hover:bg-zinc-800"
@@ -186,7 +256,10 @@ export const Reader: React.FC<ReaderProps> = ({ bookId, onNavigate }) => {
                       : 'text-zinc-500 hover:text-zinc-200 hover:bg-zinc-900',
                   ].join(' ')}
                 >
-                  <div className="font-medium">{chapter.title}</div>
+                  <div className="font-medium">
+                    {chapter.title}
+                  </div>
+
                   <div className="text-[10px] text-zinc-600 mt-1">
                     {chapter.paragraphs.length} sections
                   </div>
@@ -209,7 +282,10 @@ export const Reader: React.FC<ReaderProps> = ({ bookId, onNavigate }) => {
 
           <article className="space-y-7 text-[18px] sm:text-[19px] leading-[2.15] text-zinc-200">
             {activeChapter.paragraphs.map((paragraph) => (
-              <div key={paragraph.id} className="space-y-3">
+              <div
+                key={paragraph.id}
+                className="space-y-3"
+              >
                 {paragraph.sentences.map((sentence) => (
                   <p key={sentence.id}>
                     {sentence.tokens.map((token) => {
@@ -221,19 +297,20 @@ export const Reader: React.FC<ReaderProps> = ({ bookId, onNavigate }) => {
                         );
                       }
 
-                      const lemma = token.lemma ?? token.surface;
-                      const isKnown = MOCK_DICTIONARY[lemma]?.isCard;
-
                       return (
                         <button
                           key={token.id}
                           type="button"
-                          onClick={() => handleSelectToken(token)}
-                          className={[
-                            'rounded-md transition-colors duration-100',
-                            'hover:bg-amber-400/10 hover:text-amber-300',
-                            isKnown ? 'text-zinc-200' : '',
-                          ].join(' ')}
+                          onClick={() =>
+                            handleSelectToken(token)
+                          }
+                          className="rounded-md transition-colors duration-100 hover:bg-amber-400/10 hover:text-amber-300"
+                          title={
+                            token.lemma &&
+                            token.lemma !== token.surface
+                              ? `Dictionary form: ${token.lemma}`
+                              : undefined
+                          }
                         >
                           {token.surface}
                         </button>
@@ -249,15 +326,22 @@ export const Reader: React.FC<ReaderProps> = ({ bookId, onNavigate }) => {
             <Button
               variant="secondary"
               disabled={activeChapterIndex === 0}
-              onClick={() => goToChapter(activeChapterIndex - 1)}
+              onClick={() =>
+                goToChapter(activeChapterIndex - 1)
+              }
             >
               <ChevronLeft size={15} />
               Previous
             </Button>
 
             <Button
-              disabled={activeChapterIndex === book.chapters.length - 1}
-              onClick={() => goToChapter(activeChapterIndex + 1)}
+              disabled={
+                activeChapterIndex ===
+                book.chapters.length - 1
+              }
+              onClick={() =>
+                goToChapter(activeChapterIndex + 1)
+              }
             >
               Next Chapter
               <ChevronRight size={15} />
@@ -273,15 +357,24 @@ export const Reader: React.FC<ReaderProps> = ({ bookId, onNavigate }) => {
                   <Languages size={18} />
                 </div>
 
-                <h3 className="text-sm font-semibold text-zinc-100">Explore the text</h3>
+                <h3 className="text-sm font-semibold text-zinc-100">
+                  Explore the text
+                </h3>
+
                 <p className="text-xs text-zinc-500 leading-relaxed mt-2">
-                  Click a Japanese word to see its meaning, learning status, and SRS options.
+                  Click a Japanese word to see its dictionary
+                  form, reading, meaning, and learning status.
                 </p>
               </div>
             ) : (
               <WordPanel
                 token={selectedWord}
-                isSaved={savedWords.has(selectedWord.lemma ?? selectedWord.surface)}
+                isSaved={savedWords.has(
+                  selectedWord.lemma ||
+                    selectedWord.dictionaryForm ||
+                    selectedWord.surface
+                )}
+                adding={addingWord}
                 onAdd={handleAddCard}
                 onClose={() => setSelectedWord(null)}
               />
@@ -294,33 +387,95 @@ export const Reader: React.FC<ReaderProps> = ({ bookId, onNavigate }) => {
 };
 
 interface WordPanelProps {
-  token: LocalToken;
+  token: TokenDetails;
   isSaved: boolean;
+  adding: boolean;
   onAdd: () => void;
   onClose: () => void;
 }
+const WordPanel: React.FC<WordPanelProps> = ({
+  token,
+  isSaved,
+  adding,
+  onAdd,
+  onClose,
+}) => {
+  const lemma =
+    token.lemma ||
+    token.dictionaryForm ||
+    token.surface;
 
-const WordPanel: React.FC<WordPanelProps> = ({ token, isSaved, onAdd, onClose }) => {
-  const key = token.lemma ?? token.surface;
-  const info = MOCK_DICTIONARY[key];
+  const [entries, setEntries] =
+    useState<DictionaryEntry[]>([]);
 
-  const fallback: WordInfo = {
-    lemma: key,
-    reading: '—',
-    meaning: 'Meaning not available in mock dictionary.',
-    jlpt: 'Unknown',
-    isCard: false,
-  };
+  const [loading, setLoading] =
+    useState(true);
 
-  const word = info ?? fallback;
+  const [error, setError] =
+    useState<string | null>(null);
+
+  useEffect(() => {
+    const controller = new AbortController();
+
+    let cancelled = false;
+
+    setEntries([]);
+    setError(null);
+    setLoading(true);
+
+    lookupJapanese(
+      lemma,
+      controller.signal
+    )
+      .then((result) => {
+        if (!cancelled) {
+          setEntries(result);
+        }
+      })
+      .catch((reason: unknown) => {
+        if (
+          controller.signal.aborted ||
+          cancelled
+        ) {
+          return;
+        }
+
+        setError(
+          reason instanceof Error
+            ? reason.message
+            : 'Dictionary lookup failed.'
+        );
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [lemma]);
+
+  const reading =
+    token.reading ||
+    entries[0]?.reading;
 
   return (
     <div className="rounded-2xl border border-zinc-800/80 bg-zinc-900/80 overflow-hidden shadow-2xl shadow-black/20">
       <div className="p-5 border-b border-zinc-800/70">
         <div className="flex items-start justify-between">
           <div>
-            <div className="font-display text-4xl text-zinc-50">{word.lemma}</div>
-            <div className="text-sm text-amber-400 mt-1">{word.reading}</div>
+            <div className="font-display text-4xl text-zinc-50">
+              {token.surface}
+            </div>
+
+            {reading && (
+              <div className="text-sm text-amber-400 mt-1">
+                {reading}
+              </div>
+            )}
           </div>
 
           <button
@@ -331,22 +486,96 @@ const WordPanel: React.FC<WordPanelProps> = ({ token, isSaved, onAdd, onClose })
             <X size={15} />
           </button>
         </div>
+
+        {lemma !== token.surface && (
+          <div className="text-xs text-zinc-500 mt-3">
+            Dictionary form:{' '}
+            <strong className="text-zinc-300">
+              {lemma}
+            </strong>
+          </div>
+        )}
+
+        {token.partOfSpeech && (
+          <div className="text-[10px] text-zinc-600 mt-2">
+            {token.partOfSpeech}
+          </div>
+        )}
       </div>
 
       <div className="p-5 space-y-5">
-        <div>
-          <div className="text-[10px] uppercase tracking-wider text-zinc-600 mb-1">Meaning</div>
-          <div className="text-sm text-zinc-200">{word.meaning}</div>
-        </div>
+        {loading && (
+          <div className="text-xs text-zinc-500">
+            Looking up {lemma}…
+          </div>
+        )}
 
-        <div className="flex items-center gap-2">
-          <Badge variant="gold">{word.jlpt}</Badge>
+        {error && (
+          <div className="rounded-lg border border-red-400/10 bg-red-400/5 p-3 text-xs text-red-300">
+            {error}
+          </div>
+        )}
 
-          {word.isCard && (
-            <Badge variant="success">{word.mastery}% mastered</Badge>
+        {!loading &&
+          !error &&
+          entries.length === 0 && (
+            <div className="text-xs text-zinc-500">
+              No dictionary entry found for{' '}
+              <strong>{lemma}</strong>.
+            </div>
           )}
 
-          {!word.isCard && !isSaved && <Badge variant="muted">Not in SRS</Badge>}
+        {entries.map((entry, entryIndex) => (
+          <div
+            key={`${entry.word}-${entryIndex}`}
+            className="space-y-3"
+          >
+            <div className="flex items-baseline justify-between gap-3">
+              <strong className="text-sm text-zinc-100">
+                {entry.word}
+              </strong>
+
+              {entry.reading && (
+                <span className="text-xs text-amber-400">
+                  {entry.reading}
+                </span>
+              )}
+            </div>
+
+            {entry.senses.map(
+              (sense, senseIndex) => (
+                <div key={senseIndex}>
+                  {sense.partsOfSpeech.length >
+                    0 && (
+                    <div className="text-[10px] text-zinc-600 mb-1">
+                      {sense.partsOfSpeech.join(', ')}
+                    </div>
+                  )}
+
+                  <ol className="list-decimal list-inside space-y-1 text-sm text-zinc-300">
+                    {sense.englishDefinitions.map(
+                      (
+                        definition,
+                        definitionIndex
+                      ) => (
+                        <li
+                          key={definitionIndex}
+                        >
+                          {definition}
+                        </li>
+                      )
+                    )}
+                  </ol>
+                </div>
+              )
+            )}
+          </div>
+        ))}
+
+        <div className="flex items-center gap-2">
+          <Badge variant="muted">
+            Local token
+          </Badge>
 
           {isSaved && (
             <Badge variant="success">
@@ -360,6 +589,19 @@ const WordPanel: React.FC<WordPanelProps> = ({ token, isSaved, onAdd, onClose })
           <button
             type="button"
             className="flex items-center justify-center gap-2 py-2.5 rounded-lg border border-zinc-800 bg-zinc-950 text-zinc-400 hover:text-zinc-100 hover:border-zinc-700 text-xs"
+            onClick={() => {
+              if (
+                'speechSynthesis' in window
+              ) {
+                window.speechSynthesis.cancel();
+
+                window.speechSynthesis.speak(
+                  new SpeechSynthesisUtterance(
+                    token.surface
+                  )
+                );
+              }
+            }}
           >
             <Volume2 size={14} />
             Listen
@@ -368,29 +610,52 @@ const WordPanel: React.FC<WordPanelProps> = ({ token, isSaved, onAdd, onClose })
           <button
             type="button"
             className="flex items-center justify-center gap-2 py-2.5 rounded-lg border border-zinc-800 bg-zinc-950 text-zinc-400 hover:text-zinc-100 hover:border-zinc-700 text-xs"
+            onClick={() => {
+              // AI explanation belongs in the backend later.
+              // Keep the reader fully local for dictionary lookup now.
+            }}
           >
             <Sparkles size={14} />
             Explain
           </button>
         </div>
 
-        {!word.isCard && !isSaved ? (
-          <Button fullWidth onClick={onAdd}>
-            <Plus size={15} />
-            Add to SRS
-          </Button>
-        ) : (
-          <Button variant="secondary" fullWidth>
-            <BookOpen size={14} />
-            View Card
-          </Button>
-        )}
+        {!isSaved ? (
+        <Button
+          fullWidth
+          onClick={onAdd}
+          disabled={adding}
+        >
+          {adding ? (
+            <>
+              <span className="animate-spin">◌</span>
+              Adding…
+            </>
+          ) : (
+            <>
+              <Plus size={15} />
+              Add to SRS
+            </>
+          )}
+        </Button>
+      ) : (
+        <Button
+          variant="secondary"
+          fullWidth
+        >
+          <BookOpen size={14} />
+          View Card
+        </Button>
+      )}
 
         <div className="pt-4 border-t border-zinc-800/70 flex items-center justify-between text-[10px] text-zinc-600">
-          <span>From this book</span>
+          <span>
+            Lemma: {lemma}
+          </span>
+
           <span className="flex items-center gap-1">
             <Headphones size={10} />
-            Local context
+            Local reader
           </span>
         </div>
       </div>

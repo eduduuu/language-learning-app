@@ -11,3 +11,4 @@ fugashi>=1.3.0
 unidic-lite>=1.0.8
 fsrs
 google-generativeai
+httpx
