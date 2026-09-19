@@ -1,6 +1,25 @@
 import React, { useState } from 'react';
-import { HelpCircle, Sparkles, CheckCircle2, XCircle, Loader2, ArrowRight } from 'lucide-react';
+import {
+  ArrowRight,
+  CheckCircle2,
+  HelpCircle,
+  Sparkles,
+  XCircle,
+} from 'lucide-react';
 import { api } from '../lib/api';
+import {
+  Badge,
+  Button,
+  Card,
+  CardHeader,
+  EmptyState,
+  Input,
+  Label,
+  LoadingState,
+  PageHeader,
+  Segmented,
+  Slider,
+} from '../components/ui';
 
 interface QuestionData {
   question: string;
@@ -9,21 +28,22 @@ interface QuestionData {
   explanation: string;
 }
 
+const SUGGESTED_THEMES = ['N4 Te-form', 'N3 Passive voice', 'Conditionals', 'Keigo'];
+
 export const Quiz: React.FC = () => {
   const [language, setLanguage] = useState<'japanese' | 'english'>('japanese');
-  const [theme, setTheme] = useState<string>('N4 Te-form usage');
-  const [complexity, setComplexity] = useState<number>(3);
+  const [theme, setTheme] = useState('N4 Te-form usage');
+  const [complexity, setComplexity] = useState(3);
 
-  const [loading, setLoading] = useState<boolean>(false);
+  const [loading, setLoading] = useState(false);
   const [questionData, setQuestionData] = useState<QuestionData | null>(null);
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
-  const [submitted, setSubmitted] = useState<boolean>(false);
+  const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const handleGenerateQuiz = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleGenerateQuiz = async (e?: React.FormEvent) => {
+    e?.preventDefault();
     if (!theme) return;
-
     setLoading(true);
     setError(null);
     setQuestionData(null);
@@ -44,23 +64,15 @@ export const Quiz: React.FC = () => {
     }
   };
 
-  const handleSelectOption = (index: number) => {
-    if (submitted) return;
-    setSelectedIndex(index);
-  };
-
   const handleSubmitAnswer = async () => {
     if (selectedIndex === null || !questionData) return;
     setSubmitted(true);
-
-    const isCorrect = selectedIndex === questionData.correct_option_index;
-
     try {
       await api.post('/quiz/log', {
         theme,
         language,
         complexity,
-        is_correct: isCorrect,
+        is_correct: selectedIndex === questionData.correct_option_index,
       });
     } catch (err) {
       console.error('Failed to log quiz attempt:', err);
@@ -68,213 +80,183 @@ export const Quiz: React.FC = () => {
   };
 
   return (
-    <div className="space-y-8">
-      <div>
-        <h2 className="text-2xl font-bold text-white tracking-wide flex items-center gap-2">
-          <HelpCircle className="text-indigo-400" size={28} />
-          Grammar Quiz Engine
-        </h2>
-        <p className="text-slate-400 text-sm mt-1">
-          Test targeted grammar points generated dynamically on demand.
-        </p>
-      </div>
+    <div className="space-y-10 max-w-6xl">
+      <PageHeader
+        icon={HelpCircle}
+        kicker="Practice"
+        title="Grammar quiz engine"
+        subtitle="Sharpen targeted grammar points with dynamically generated questions."
+      />
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-        {/* Setup Panel (4 Cols) */}
-        <div className="lg:col-span-4 bg-slate-800 border border-slate-700 rounded-xl p-6 shadow-xl h-fit space-y-6">
-          <h3 className="font-semibold text-slate-200 text-sm uppercase tracking-wider">
-            Quiz Parameters
-          </h3>
-
-          <form onSubmit={handleGenerateQuiz} className="space-y-5">
-            <div>
-              <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2">
-                Language
-              </label>
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={() => setLanguage('japanese')}
-                  className={`py-2 text-xs font-semibold rounded-lg border transition-colors ${
-                    language === 'japanese'
-                      ? 'bg-indigo-600 border-indigo-500 text-white'
-                      : 'bg-slate-900 border-slate-700 text-slate-400'
-                  }`}
-                >
-                  Japanese
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setLanguage('english')}
-                  className={`py-2 text-xs font-semibold rounded-lg border transition-colors ${
-                    language === 'english'
-                      ? 'bg-indigo-600 border-indigo-500 text-white'
-                      : 'bg-slate-900 border-slate-700 text-slate-400'
-                  }`}
-                >
-                  English
-                </button>
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        {/* Parameters */}
+        <div className="lg:col-span-4">
+          <Card className="sticky top-6">
+            <CardHeader title="Parameters" icon={Sparkles} />
+            <form onSubmit={handleGenerateQuiz} className="p-6 space-y-6">
+              <div>
+                <Label>Language</Label>
+                <Segmented
+                  value={language}
+                  onChange={setLanguage}
+                  className="w-full"
+                  options={[
+                    { value: 'japanese', label: '🇯🇵 Japanese' },
+                    { value: 'english', label: '🇺🇸 English' },
+                  ]}
+                />
               </div>
-            </div>
 
-            <div>
-              <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2">
-                Grammar Topic / Theme
-              </label>
-              <input
-                type="text"
-                value={theme}
-                onChange={(e) => setTheme(e.target.value)}
-                placeholder="e.g. N3 Passive Voice, Conditionals..."
-                className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-indigo-500"
-                required
-              />
-            </div>
-
-            <div>
-              <div className="flex justify-between text-xs font-semibold text-slate-300 mb-2">
-                <span>Complexity (1-5)</span>
-                <span className="text-indigo-400">{complexity}</span>
+              <div>
+                <Label>Grammar theme</Label>
+                <Input
+                  value={theme}
+                  onChange={(e) => setTheme(e.target.value)}
+                  placeholder="e.g. Conditionals, Passive voice…"
+                  required
+                />
+                <div className="flex flex-wrap gap-1.5 mt-3">
+                  {SUGGESTED_THEMES.map((t) => (
+                    <button
+                      key={t}
+                      type="button"
+                      onClick={() => setTheme(t)}
+                      className="px-2.5 py-1 text-[11px] text-zinc-400 hover:text-amber-300 border border-zinc-800 hover:border-amber-400/40 rounded-md transition-colors"
+                    >
+                      {t}
+                    </button>
+                  ))}
+                </div>
               </div>
-              <input
-                type="range"
+
+              <Slider
+                label="Complexity"
                 min={1}
                 max={5}
                 value={complexity}
-                onChange={(e) => setComplexity(parseInt(e.target.value))}
-                className="w-full accent-indigo-500"
+                onChange={setComplexity}
+                display={`${complexity} / 5`}
               />
-            </div>
 
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-700 text-white py-3 rounded-lg font-medium text-sm transition-colors shadow-lg shadow-indigo-600/20"
-            >
-              {loading ? (
-                <>
-                  <Loader2 size={18} className="animate-spin" />
-                  Generating...
-                </>
-              ) : (
-                <>
-                  <Sparkles size={18} />
-                  Generate Question
-                </>
-              )}
-            </button>
-          </form>
+              <Button type="submit" loading={loading} fullWidth size="lg">
+                {!loading && <Sparkles size={16} />}
+                {loading ? 'Generating…' : 'Generate question'}
+              </Button>
+            </form>
+          </Card>
         </div>
 
-        {/* Question Panel (8 Cols) */}
-        <div className="lg:col-span-8 flex flex-col">
+        {/* Question panel */}
+        <div className="lg:col-span-8">
           {error && (
-            <div className="p-4 bg-rose-500/10 border border-rose-500/30 text-rose-300 rounded-xl text-sm mb-4">
+            <div className="mb-4 p-4 rounded-xl bg-rose-500/10 border border-rose-500/25 text-rose-300 text-sm">
               {error}
             </div>
           )}
 
           {!questionData && !loading && (
-            <div className="flex-1 bg-slate-800/40 border-2 border-dashed border-slate-700 rounded-xl p-12 flex flex-col items-center justify-center text-center text-slate-500">
-              <HelpCircle size={48} className="mb-3 opacity-40 text-indigo-400" />
-              <p className="text-base font-medium text-slate-300">Ready to test your knowledge</p>
-              <p className="text-xs text-slate-500 max-w-xs mt-1">
-                Set your grammar topic on the left and start generating AI questions.
-              </p>
-            </div>
+            <EmptyState
+              icon={HelpCircle}
+              title="Ready when you are"
+              description="Set your grammar topic on the left, then generate a question to test your understanding."
+              className="h-full min-h-[420px]"
+            />
           )}
 
           {loading && (
-            <div className="flex-1 bg-slate-800 border border-slate-700 rounded-xl p-12 flex flex-col items-center justify-center text-slate-400">
-              <Loader2 size={40} className="animate-spin text-indigo-400 mb-4" />
-              <p className="text-sm font-medium animate-pulse">Designing question with LLM...</p>
-            </div>
+            <Card className="h-full min-h-[420px] grid place-items-center">
+              <LoadingState message="Designing a question with the model…" />
+            </Card>
           )}
 
           {questionData && !loading && (
-            <div className="bg-slate-800 border border-slate-700 rounded-xl p-8 shadow-2xl space-y-6 flex-1 flex flex-col justify-between">
-              <div className="space-y-6">
-                <div className="flex items-center justify-between border-b border-slate-700/80 pb-4">
-                  <span className="text-xs uppercase tracking-wider font-semibold text-indigo-400">
-                    Topic: {theme}
-                  </span>
-                  <span className="text-xs text-slate-400 font-mono">
-                    Level {complexity}/5
-                  </span>
+            <Card className="p-8 animate-fade-in">
+              <div className="flex items-center justify-between pb-5 border-b border-zinc-800/60">
+                <div className="flex items-center gap-2 text-xs text-zinc-400">
+                  <span className="text-amber-400">●</span>
+                  {theme}
                 </div>
-
-                <h3 className="text-xl font-medium text-slate-100 leading-snug">
-                  {questionData.question}
-                </h3>
-
-                {/* Options List */}
-                <div className="space-y-3">
-                  {questionData.options.map((opt, idx) => {
-                    const isSelected = selectedIndex === idx;
-                    const isCorrect = idx === questionData.correct_option_index;
-
-                    let btnStyle = 'bg-slate-900/60 border-slate-700 text-slate-200 hover:border-slate-500';
-
-                    if (submitted) {
-                      if (isCorrect) {
-                        btnStyle = 'bg-emerald-950/60 border-emerald-500 text-emerald-200 font-semibold';
-                      } else if (isSelected && !isCorrect) {
-                        btnStyle = 'bg-rose-950/60 border-rose-500 text-rose-200';
-                      } else {
-                        btnStyle = 'bg-slate-900/30 border-slate-800 text-slate-500';
-                      }
-                    } else if (isSelected) {
-                      btnStyle = 'bg-indigo-950/60 border-indigo-500 text-indigo-200 font-semibold';
-                    }
-
-                    return (
-                      <button
-                        key={idx}
-                        onClick={() => handleSelectOption(idx)}
-                        disabled={submitted}
-                        className={`w-full text-left p-4 rounded-xl border transition-all flex items-center justify-between ${btnStyle}`}
-                      >
-                        <span className="text-sm">{opt}</span>
-                        {submitted && isCorrect && <CheckCircle2 size={18} className="text-emerald-400 shrink-0" />}
-                        {submitted && isSelected && !isCorrect && <XCircle size={18} className="text-rose-400 shrink-0" />}
-                      </button>
-                    );
-                  })}
-                </div>
-
-                {/* Explanation Block */}
-                {submitted && (
-                  <div className="p-4 bg-slate-900/90 border border-slate-700 rounded-xl space-y-1 animate-fadeIn">
-                    <span className="text-xs uppercase tracking-wider font-bold text-slate-400">
-                      Explanation
-                    </span>
-                    <p className="text-sm text-slate-300 leading-relaxed">
-                      {questionData.explanation}
-                    </p>
-                  </div>
-                )}
+                <Badge variant="gold">Level {complexity}/5</Badge>
               </div>
 
-              {/* Action Toolbar */}
-              <div className="pt-4 border-t border-slate-700/80">
+              <h3 className="font-display text-2xl text-zinc-50 leading-snug mt-6 mb-6">
+                {questionData.question}
+              </h3>
+
+              <div className="space-y-2.5">
+                {questionData.options.map((opt, idx) => {
+                  const isSelected = selectedIndex === idx;
+                  const isCorrect = idx === questionData.correct_option_index;
+
+                  let style =
+                    'bg-zinc-950/50 border-zinc-800 text-zinc-200 hover:border-zinc-600 hover:bg-zinc-900/60';
+
+                  if (submitted) {
+                    if (isCorrect)
+                      style =
+                        'bg-emerald-500/[0.07] border-emerald-500/50 text-emerald-200';
+                    else if (isSelected)
+                      style = 'bg-rose-500/[0.07] border-rose-500/50 text-rose-200';
+                    else
+                      style =
+                        'bg-zinc-950/30 border-zinc-900 text-zinc-600 cursor-default';
+                  } else if (isSelected) {
+                    style =
+                      'bg-amber-400/[0.06] border-amber-400/60 text-amber-100 ring-2 ring-amber-400/10';
+                  }
+
+                  return (
+                    <button
+                      key={idx}
+                      onClick={() => !submitted && setSelectedIndex(idx)}
+                      disabled={submitted}
+                      className={`w-full text-left p-4 rounded-xl border transition-all duration-150 flex items-center justify-between gap-4 ${style}`}
+                    >
+                      <span className="text-sm leading-relaxed">{opt}</span>
+                      {submitted && isCorrect && (
+                        <CheckCircle2 size={18} className="text-emerald-400 shrink-0" />
+                      )}
+                      {submitted && isSelected && !isCorrect && (
+                        <XCircle size={18} className="text-rose-400 shrink-0" />
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {submitted && (
+                <div className="mt-6 p-5 rounded-xl bg-zinc-950/60 border border-zinc-800/80 animate-fade-in">
+                  <span className="text-[10.5px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
+                    Explanation
+                  </span>
+                  <p className="text-sm text-zinc-300 leading-relaxed mt-2">
+                    {questionData.explanation}
+                  </p>
+                </div>
+              )}
+
+              <div className="mt-8 pt-6 border-t border-zinc-800/60">
                 {!submitted ? (
-                  <button
+                  <Button
                     onClick={handleSubmitAnswer}
                     disabled={selectedIndex === null}
-                    className="w-full py-3 bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-700 text-white rounded-lg text-sm font-semibold transition-colors"
+                    fullWidth
+                    size="lg"
                   >
-                    Submit Answer
-                  </button>
+                    Submit answer
+                  </Button>
                 ) : (
-                  <button
-                    onClick={handleGenerateQuiz}
-                    className="w-full py-3 bg-slate-700 hover:bg-slate-600 text-slate-100 rounded-lg text-sm font-semibold transition-colors flex items-center justify-center gap-2"
+                  <Button
+                    onClick={() => handleGenerateQuiz()}
+                    variant="secondary"
+                    fullWidth
+                    size="lg"
                   >
-                    Next Question <ArrowRight size={16} />
-                  </button>
+                    Next question <ArrowRight size={16} />
+                  </Button>
                 )}
               </div>
-            </div>
+            </Card>
           )}
         </div>
       </div>

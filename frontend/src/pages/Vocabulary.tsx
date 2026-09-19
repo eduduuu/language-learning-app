@@ -1,6 +1,26 @@
-import React, { useState, useEffect } from 'react';
-import { Brain, Sparkles, BookOpen, Sliders, CheckCircle2, RotateCcw, Loader2, Eye } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import {
+  Brain,
+  CheckCircle2,
+  Eye,
+  Sliders,
+  Sparkles,
+  BookOpen,
+} from 'lucide-react';
 import { api } from '../lib/api';
+import {
+  Badge,
+  Button,
+  Card,
+  CardHeader,
+  EmptyState,
+  Input,
+  Label,
+  LoadingState,
+  PageHeader,
+  Segmented,
+  Slider,
+} from '../components/ui';
 
 interface SavedBook {
   id: string;
@@ -22,44 +42,46 @@ interface VocabCard {
   word_details: WordDetail[];
 }
 
+type Rating = 'very_hard' | 'hard' | 'ok' | 'good';
+
+const RATINGS: { id: Rating; label: string; ring: string; text: string }[] = [
+  { id: 'very_hard', label: 'Again', ring: 'hover:border-rose-500/60 hover:bg-rose-500/10', text: 'text-rose-300' },
+  { id: 'hard', label: 'Hard', ring: 'hover:border-amber-500/60 hover:bg-amber-500/10', text: 'text-amber-300' },
+  { id: 'ok', label: 'Good', ring: 'hover:border-sky-500/60 hover:bg-sky-500/10', text: 'text-sky-300' },
+  { id: 'good', label: 'Easy', ring: 'hover:border-emerald-500/60 hover:bg-emerald-500/10', text: 'text-emerald-300' },
+];
+
 export const Vocabulary: React.FC = () => {
-  // Source Configuration State
   const [mode, setMode] = useState<'jlpt' | 'books'>('jlpt');
   const [language, setLanguage] = useState<'japanese' | 'english'>('japanese');
-  const [jlptLevel, setJlptLevel] = useState<string>('N5');
-  const [selectedBookId, setSelectedBookId] = useState<string>('');
-  const [startPage, setStartPage] = useState<number>(1);
-  const [endPage, setEndPage] = useState<number>(10);
+  const [jlptLevel, setJlptLevel] = useState('N5');
+  const [selectedBookId, setSelectedBookId] = useState('');
+  const [startPage, setStartPage] = useState(1);
+  const [endPage, setEndPage] = useState(10);
 
-  // AI Parameters State
-  const [sentenceMaxWords, setSentenceMaxWords] = useState<number>(20);
-  const [kanjiDensity, setKanjiDensity] = useState<number>(0.5);
-  const [targetVocabCount, setTargetVocabCount] = useState<number>(3);
+  const [sentenceMaxWords, setSentenceMaxWords] = useState(20);
+  const [kanjiDensity, setKanjiDensity] = useState(0.5);
+  const [targetVocabCount, setTargetVocabCount] = useState(3);
 
-  // Card & UI State
   const [books, setBooks] = useState<SavedBook[]>([]);
   const [card, setCard] = useState<VocabCard | null>(null);
-  const [showAnswer, setShowAnswer] = useState<boolean>(false);
-  const [loading, setLoading] = useState<boolean>(false);
-  const [reviewing, setReviewing] = useState<boolean>(false);
+  const [showAnswer, setShowAnswer] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [reviewing, setReviewing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [reviewSuccess, setReviewSuccess] = useState<boolean>(false);
+  const [reviewSuccess, setReviewSuccess] = useState(false);
 
   useEffect(() => {
-    fetchBooks();
-  }, []);
-
-  const fetchBooks = async () => {
-    try {
-      const res = await api.get<SavedBook[]>('/epub/books');
-      setBooks(res.data);
-      if (res.data.length > 0) {
-        setSelectedBookId(res.data[0].id);
+    (async () => {
+      try {
+        const res = await api.get<SavedBook[]>('/epub/books');
+        setBooks(res.data);
+        if (res.data.length > 0) setSelectedBookId(res.data[0].id);
+      } catch (err) {
+        console.error('Failed to load books:', err);
       }
-    } catch (err) {
-      console.error('Failed to load books for study source:', err);
-    }
-  };
+    })();
+  }, []);
 
   const handleGenerateCard = async () => {
     setLoading(true);
@@ -68,20 +90,18 @@ export const Vocabulary: React.FC = () => {
     setShowAnswer(false);
     setReviewSuccess(false);
 
-    const payload = {
-      mode,
-      language,
-      jlpt_level: mode === 'jlpt' ? jlptLevel : undefined,
-      book_id: mode === 'books' ? selectedBookId : undefined,
-      start_page: startPage,
-      end_page: endPage,
-      sentence_max_words: sentenceMaxWords,
-      kanji_density: kanjiDensity,
-      target_vocab_count: targetVocabCount,
-    };
-
     try {
-      const res = await api.post<VocabCard>('/vocab/generate', payload);
+      const res = await api.post<VocabCard>('/vocab/generate', {
+        mode,
+        language,
+        jlpt_level: mode === 'jlpt' ? jlptLevel : undefined,
+        book_id: mode === 'books' ? selectedBookId : undefined,
+        start_page: startPage,
+        end_page: endPage,
+        sentence_max_words: sentenceMaxWords,
+        kanji_density: kanjiDensity,
+        target_vocab_count: targetVocabCount,
+      });
       setCard(res.data);
     } catch (err: any) {
       setError(err.response?.data?.detail || 'Failed to generate vocabulary sentence.');
@@ -90,297 +110,247 @@ export const Vocabulary: React.FC = () => {
     }
   };
 
-  const handleReview = async (rating: 'very_hard' | 'hard' | 'ok' | 'good') => {
-    if (!card || card.words.length === 0) return;
+  const handleReview = async (rating: Rating) => {
+    if (!card?.words.length) return;
     setReviewing(true);
-
     try {
-      // Log rating for the primary target word in the card
       await api.post('/vocab/review', {
         word: card.words[0],
         language,
         rating,
       });
-
       setReviewSuccess(true);
-      setTimeout(() => {
-        handleGenerateCard();
-      }, 800);
-    } catch (err) {
-      alert('Failed to save SRS progress.');
+      setTimeout(() => handleGenerateCard(), 700);
+    } catch {
+      alert('Failed to save progress.');
     } finally {
       setReviewing(false);
     }
   };
 
-  // Helper function to safely highlight conjugated words in the sentence
   const renderHighlightedSentence = (sentence: string, details: WordDetail[]) => {
-    if (!details || details.length === 0) return sentence;
-
-    // Extract unique conjugated words and sort by length descending to avoid partial matches
-    const conjugatedWords = [...new Set(details.map(d => d.conjugated_word))].sort((a, b) => b.length - a.length);
-    
-    // Split the sentence by the target words
-    const pattern = new RegExp(`(${conjugatedWords.join('|')})`, 'g');
-    const parts = sentence.split(pattern);
-
-    return parts.map((part, i) => {
-      if (conjugatedWords.includes(part)) {
-        return <span key={i} className="text-indigo-400 font-bold">{part}</span>;
-      }
-      return part;
-    });
+    if (!details?.length) return sentence;
+    const words = [...new Set(details.map((d) => d.conjugated_word))].sort(
+      (a, b) => b.length - a.length,
+    );
+    const pattern = new RegExp(`(${words.join('|')})`, 'g');
+    return sentence.split(pattern).map((part, i) =>
+      words.includes(part) ? (
+        <span
+          key={i}
+          className="text-amber-300 font-medium underline decoration-amber-400/40 decoration-2 underline-offset-[6px]"
+        >
+          {part}
+        </span>
+      ) : (
+        part
+      ),
+    );
   };
 
   return (
-    <div className="space-y-8">
-      <div>
-        <h2 className="text-2xl font-bold text-white tracking-wide flex items-center gap-2">
-          <Brain className="text-indigo-400" size={28} />
-          Learn Vocabulary
-        </h2>
-        <p className="text-slate-400 text-sm mt-1">
-          Generate dynamic AI practice sentences based on SRS priority and target parameters.
-        </p>
-      </div>
+    <div className="space-y-10 max-w-7xl">
+      <PageHeader
+        icon={Brain}
+        kicker="Study"
+        title="Learn in context"
+        subtitle="AI-crafted sentences built from SRS priority and your chosen parameters. Rate each card to feed the algorithm."
+      />
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-        {/* Controls Column (5 Cols) */}
-        <div className="lg:col-span-5 space-y-6 bg-slate-800 border border-slate-700 rounded-xl p-6 shadow-xl">
-          <h3 className="font-semibold text-slate-200 text-sm uppercase tracking-wider flex items-center gap-2">
-            <Sliders size={16} className="text-indigo-400" />
-            Study Configuration
-          </h3>
-
-          {/* Mode Switcher */}
-          <div>
-            <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2">
-              Vocabulary Source
-            </label>
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                onClick={() => setMode('jlpt')}
-                className={`py-2 rounded-lg text-sm font-medium border transition-colors ${
-                  mode === 'jlpt'
-                    ? 'bg-indigo-600 border-indigo-500 text-white'
-                    : 'bg-slate-900 border-slate-700 text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                JLPT Core
-              </button>
-              <button
-                onClick={() => setMode('books')}
-                className={`py-2 rounded-lg text-sm font-medium border transition-colors ${
-                  mode === 'books'
-                    ? 'bg-indigo-600 border-indigo-500 text-white'
-                    : 'bg-slate-900 border-slate-700 text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                Saved Books
-              </button>
-            </div>
-          </div>
-
-          {/* Source Options */}
-          {mode === 'jlpt' ? (
-            <div>
-              <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2">
-                JLPT Level
-              </label>
-              <select
-                value={jlptLevel}
-                onChange={(e) => setJlptLevel(e.target.value)}
-                className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-sm text-slate-100 focus:outline-none focus:border-indigo-500"
-              >
-                {['N5', 'N4', 'N3', 'N2', 'N1'].map((lvl) => (
-                  <option key={lvl} value={lvl}>
-                    {lvl} Level
-                  </option>
-                ))}
-              </select>
-            </div>
-          ) : (
-            <div className="space-y-3">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        {/* Config */}
+        <div className="lg:col-span-4">
+          <Card className="sticky top-6">
+            <CardHeader icon={Sliders} title="Study configuration" />
+            <div className="p-6 space-y-5">
               <div>
-                <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2">
-                  Select Book
-                </label>
-                <select
-                  value={selectedBookId}
-                  onChange={(e) => setSelectedBookId(e.target.value)}
-                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-sm text-slate-100 focus:outline-none focus:border-indigo-500"
-                >
-                  {books.length === 0 ? (
-                    <option value="">No books uploaded</option>
-                  ) : (
-                    books.map((b) => (
-                      <option key={b.id} value={b.id}>
-                        {b.title}
-                      </option>
-                    ))
-                  )}
-                </select>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-400 mb-1">Start Page</label>
-                  <input
-                    type="number"
-                    min={1}
-                    value={startPage}
-                    onChange={(e) => setStartPage(parseInt(e.target.value) || 1)}
-                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-sm"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-400 mb-1">End Page</label>
-                  <input
-                    type="number"
-                    min={1}
-                    value={endPage}
-                    onChange={(e) => setEndPage(parseInt(e.target.value) || 1)}
-                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-sm"
-                  />
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Parameter Sliders */}
-          <div className="space-y-4 border-t border-slate-700/60 pt-4">
-            <div>
-              <div className="flex justify-between text-xs font-semibold text-slate-300 mb-1">
-                <span>Max Sentence Words</span>
-                <span className="text-indigo-400">{sentenceMaxWords}</span>
-              </div>
-              <input
-                type="range"
-                min={5}
-                max={30}
-                value={sentenceMaxWords}
-                onChange={(e) => setSentenceMaxWords(parseInt(e.target.value))}
-                className="w-full accent-indigo-500"
-              />
-            </div>
-
-            {language === 'japanese' && (
-              <div>
-                <div className="flex justify-between text-xs font-semibold text-slate-300 mb-1">
-                  <span>Kanji vs. Hiragana Density</span>
-                  <span className="text-indigo-400">{Math.round(kanjiDensity * 100)}%</span>
-                </div>
-                <input
-                  type="range"
-                  min={0}
-                  max={1}
-                  step={0.1}
-                  value={kanjiDensity}
-                  onChange={(e) => setKanjiDensity(parseFloat(e.target.value))}
-                  className="w-full accent-indigo-500"
+                <Label>Vocabulary source</Label>
+                <Segmented
+                  value={mode}
+                  onChange={(v) => setMode(v)}
+                  className="w-full"
+                  options={[
+                    { value: 'jlpt', label: 'JLPT Core' },
+                    { value: 'books', label: 'My books' },
+                  ]}
                 />
               </div>
-            )}
 
-            <div>
-              <div className="flex justify-between text-xs font-semibold text-slate-300 mb-1">
-                <span>Target Words Count</span>
-                <span className="text-indigo-400">{targetVocabCount}</span>
+              {mode === 'jlpt' ? (
+                <div>
+                  <Label>JLPT level</Label>
+                  <Segmented
+                    value={jlptLevel}
+                    onChange={setJlptLevel}
+                    className="w-full"
+                    options={['N5', 'N4', 'N3', 'N2', 'N1'].map((l) => ({
+                      value: l,
+                      label: l,
+                    }))}
+                  />
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <div>
+                    <Label>Book</Label>
+                    <select
+                      value={selectedBookId}
+                      onChange={(e) => setSelectedBookId(e.target.value)}
+                      className="w-full bg-zinc-950/60 border border-zinc-800 rounded-lg px-3.5 py-2.5 text-sm text-zinc-100 focus:outline-none focus:border-amber-400/50 focus:ring-2 focus:ring-amber-400/15"
+                    >
+                      {books.length === 0 ? (
+                        <option value="">No books uploaded</option>
+                      ) : (
+                        books.map((b) => (
+                          <option key={b.id} value={b.id}>
+                            {b.title}
+                          </option>
+                        ))
+                      )}
+                    </select>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <Label>Start</Label>
+                      <Input
+                        type="number"
+                        min={1}
+                        value={startPage}
+                        onChange={(e) => setStartPage(parseInt(e.target.value) || 1)}
+                      />
+                    </div>
+                    <div>
+                      <Label>End</Label>
+                      <Input
+                        type="number"
+                        min={1}
+                        value={endPage}
+                        onChange={(e) => setEndPage(parseInt(e.target.value) || 1)}
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <div className="space-y-4 pt-4 border-t border-zinc-800/60">
+                <Slider
+                  label="Max sentence length"
+                  min={5}
+                  max={30}
+                  value={sentenceMaxWords}
+                  onChange={setSentenceMaxWords}
+                  display={`${sentenceMaxWords} words`}
+                />
+                {language === 'japanese' && (
+                  <Slider
+                    label="Kanji density"
+                    min={0}
+                    max={1}
+                    step={0.1}
+                    value={kanjiDensity}
+                    onChange={setKanjiDensity}
+                    display={`${Math.round(kanjiDensity * 100)}%`}
+                  />
+                )}
+                <Slider
+                  label="Target words"
+                  min={1}
+                  max={5}
+                  value={targetVocabCount}
+                  onChange={setTargetVocabCount}
+                  display={`${targetVocabCount}`}
+                />
               </div>
-              <input
-                type="range"
-                min={1}
-                max={5}
-                value={targetVocabCount}
-                onChange={(e) => setTargetVocabCount(parseInt(e.target.value))}
-                className="w-full accent-indigo-500"
-              />
-            </div>
-          </div>
 
-          <button
-            onClick={handleGenerateCard}
-            disabled={loading || (mode === 'books' && !selectedBookId)}
-            className="w-full flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-700 text-white py-3 rounded-lg font-medium text-sm transition-colors shadow-lg shadow-indigo-600/20"
-          >
-            {loading ? (
-              <>
-                <Loader2 size={18} className="animate-spin" />
-                Generating Prompt...
-              </>
-            ) : (
-              <>
-                <Sparkles size={18} />
-                Generate Card
-              </>
-            )}
-          </button>
+              <Button
+                onClick={handleGenerateCard}
+                disabled={mode === 'books' && !selectedBookId}
+                loading={loading}
+                fullWidth
+                size="lg"
+              >
+                {!loading && <Sparkles size={16} />}
+                {loading ? 'Generating…' : 'Generate card'}
+              </Button>
+            </div>
+          </Card>
         </div>
 
-        {/* Card Viewport Column (7 Cols) */}
-        <div className="lg:col-span-7 flex flex-col">
+        {/* Flashcard viewport */}
+        <div className="lg:col-span-8">
           {error && (
-            <div className="p-4 bg-rose-500/10 border border-rose-500/30 text-rose-300 rounded-xl text-sm mb-4">
+            <div className="mb-4 p-4 rounded-xl bg-rose-500/10 border border-rose-500/25 text-rose-300 text-sm">
               {error}
             </div>
           )}
 
           {!card && !loading && (
-            <div className="flex-1 bg-slate-800/40 border-2 border-dashed border-slate-700 rounded-xl p-12 flex flex-col items-center justify-center text-center text-slate-500">
-              <Brain size={48} className="mb-3 opacity-40 text-indigo-400" />
-              <p className="text-base font-medium text-slate-300">No active flashcard loaded</p>
-              <p className="text-xs text-slate-500 max-w-xs mt-1">
-                Configure your source settings on the left and click "Generate Card" to start studying.
-              </p>
-            </div>
+            <EmptyState
+              icon={Brain}
+              title="No active card"
+              description="Set your study parameters on the left and generate a card to begin."
+              className="h-full min-h-[480px]"
+            />
           )}
 
           {loading && (
-            <div className="flex-1 bg-slate-800 border border-slate-700 rounded-xl p-12 flex flex-col items-center justify-center text-slate-400">
-              <Loader2 size={40} className="animate-spin text-indigo-400 mb-4" />
-              <p className="text-sm font-medium animate-pulse">Constructing contextual sentence with Groq LLM...</p>
-            </div>
+            <Card className="grid place-items-center min-h-[480px]">
+              <LoadingState message="Composing a sentence…" />
+            </Card>
           )}
 
           {card && !loading && (
-            <div className="bg-slate-800 border border-slate-700 rounded-xl p-8 shadow-2xl flex flex-col justify-between flex-1 relative overflow-hidden">
+            <Card className="relative min-h-[480px] flex flex-col overflow-hidden animate-fade-in">
               {reviewSuccess && (
-                <div className="absolute inset-0 bg-emerald-950/90 backdrop-blur-sm z-10 flex flex-col items-center justify-center text-emerald-300">
-                  <CheckCircle2 size={48} className="mb-2 animate-bounce" />
-                  <p className="font-semibold text-lg">Card Reviewed!</p>
+                <div className="absolute inset-0 z-10 grid place-items-center bg-zinc-950/90 backdrop-blur-sm animate-fade-in">
+                  <div className="flex flex-col items-center gap-2 text-emerald-400">
+                    <CheckCircle2 size={40} className="animate-pulse" />
+                    <span className="text-sm font-medium">Progress saved</span>
+                  </div>
                 </div>
               )}
 
-              <div className="space-y-6">
-
-                {/* Primary Sentence */}
-                <div className="bg-slate-900/80 p-6 rounded-xl border border-slate-700/80">
-                  <p className="text-2xl font-serif text-slate-100 tracking-wide leading-relaxed">
+              <div className="p-8 sm:p-10 flex-1 flex flex-col gap-6">
+                {/* Sentence */}
+                <div className="flex-1 grid place-items-center min-h-[140px]">
+                  <p className="font-display text-3xl sm:text-[2.5rem] leading-[1.35] text-zinc-50 text-center max-w-2xl tracking-tight">
                     {renderHighlightedSentence(card.sentence, card.word_details)}
                   </p>
                 </div>
 
-                {/* Translation & Breakdown Reveal Area */}
+                {/* Reveal */}
                 {showAnswer ? (
-                  <div className="space-y-4 animate-fadeIn">
-                    <div className="p-5 bg-indigo-950/30 border border-indigo-500/20 rounded-xl text-indigo-200 text-base">
-                      <span className="text-[10px] uppercase tracking-wider font-bold text-indigo-400 block mb-1">
+                  <div className="space-y-4 animate-fade-in">
+                    <div className="p-5 rounded-xl bg-amber-400/[0.04] border border-amber-400/20">
+                      <span className="text-[10.5px] font-semibold uppercase tracking-[0.18em] text-amber-400/90 block mb-2">
                         Translation
                       </span>
-                      {card.translation}
+                      <p className="text-base text-zinc-100 leading-relaxed">
+                        {card.translation}
+                      </p>
                     </div>
 
-                    <div className="p-5 bg-slate-900/50 border border-slate-700 rounded-xl">
-                      <span className="text-[10px] uppercase tracking-wider font-bold text-slate-400 block mb-3">
-                        Vocabulary Breakdown
+                    <div className="p-5 rounded-xl bg-zinc-950/60 border border-zinc-800/80">
+                      <span className="text-[10.5px] font-semibold uppercase tracking-[0.18em] text-zinc-500 block mb-4">
+                        Vocabulary breakdown
                       </span>
-                      <div className="space-y-3">
+                      <div className="space-y-4">
                         {card.word_details.map((wd, i) => (
-                          <div key={i} className="flex flex-col text-sm border-l-2 border-indigo-500/50 pl-3">
-                            <div className="flex items-baseline gap-2">
-                              <span className="font-bold text-slate-200 text-base">{wd.base_word}</span>
-                              <span className="text-slate-400 font-mono text-xs">{wd.reading}</span>
+                          <div
+                            key={i}
+                            className="flex flex-col border-l-2 border-amber-400/40 pl-4"
+                          >
+                            <div className="flex items-baseline gap-3 flex-wrap">
+                              <span className="text-lg font-semibold text-zinc-100">
+                                {wd.base_word}
+                              </span>
+                              <span className="text-xs font-mono text-zinc-500">
+                                {wd.reading}
+                              </span>
                             </div>
-                            <span className="text-slate-300 mt-1">{wd.meaning}</span>
+                            <span className="text-sm text-zinc-400 mt-1">
+                              {wd.meaning}
+                            </span>
                           </div>
                         ))}
                       </div>
@@ -389,53 +359,34 @@ export const Vocabulary: React.FC = () => {
                 ) : (
                   <button
                     onClick={() => setShowAnswer(true)}
-                    className="w-full py-4 bg-slate-900/40 border border-slate-700/60 hover:bg-slate-700/30 text-slate-300 rounded-xl text-sm font-medium flex items-center justify-center gap-2 transition-colors"
+                    className="w-full py-5 rounded-xl border border-dashed border-zinc-700 hover:border-amber-400/40 hover:bg-amber-400/[0.03] text-zinc-400 hover:text-amber-300 transition-all flex items-center justify-center gap-2 text-sm font-medium"
                   >
-                    <Eye size={18} />
-                    Reveal Translation & Notes
+                    <Eye size={16} />
+                    Reveal translation & notes
                   </button>
                 )}
               </div>
 
-              {/* Anki Review Rating Buttons */}
               {showAnswer && (
-                <div className="mt-8 pt-6 border-t border-slate-700/80 space-y-3">
-                  <span className="text-xs font-semibold text-slate-400 block text-center">
-                    Rate Recall Difficulty (FSRS Algorithm)
+                <div className="px-8 sm:px-10 py-6 border-t border-zinc-800/60 bg-zinc-950/40">
+                  <span className="text-[10.5px] font-semibold uppercase tracking-[0.18em] text-zinc-500 block text-center mb-3">
+                    Rate your recall
                   </span>
-                  <div className="grid grid-cols-4 gap-3">
-                    <button
-                      onClick={() => handleReview('very_hard')}
-                      disabled={reviewing}
-                      className="py-3 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 text-rose-300 rounded-lg text-xs font-bold transition-colors"
-                    >
-                      Very Hard
-                    </button>
-                    <button
-                      onClick={() => handleReview('hard')}
-                      disabled={reviewing}
-                      className="py-3 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-300 rounded-lg text-xs font-bold transition-colors"
-                    >
-                      Hard
-                    </button>
-                    <button
-                      onClick={() => handleReview('ok')}
-                      disabled={reviewing}
-                      className="py-3 bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/30 text-blue-300 rounded-lg text-xs font-bold transition-colors"
-                    >
-                      OK
-                    </button>
-                    <button
-                      onClick={() => handleReview('good')}
-                      disabled={reviewing}
-                      className="py-3 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-300 rounded-lg text-xs font-bold transition-colors"
-                    >
-                      Good
-                    </button>
+                  <div className="grid grid-cols-4 gap-2.5">
+                    {RATINGS.map((r) => (
+                      <button
+                        key={r.id}
+                        onClick={() => handleReview(r.id)}
+                        disabled={reviewing}
+                        className={`py-3 rounded-lg border border-zinc-800 bg-zinc-900/60 transition-all text-xs font-semibold ${r.text} ${r.ring} disabled:opacity-50`}
+                      >
+                        {r.label}
+                      </button>
+                    ))}
                   </div>
                 </div>
               )}
-            </div>
+            </Card>
           )}
         </div>
       </div>

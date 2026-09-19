@@ -1,6 +1,16 @@
 import React, { useEffect, useState } from 'react';
-import { Settings as SettingsIcon, CheckCircle2, Loader2 } from 'lucide-react';
+import { Settings as SettingsIcon, CheckCircle2 } from 'lucide-react';
 import { api } from '../lib/api';
+import {
+  Badge,
+  Button,
+  Card,
+  CardHeader,
+  Input,
+  Label,
+  LoadingState,
+  PageHeader,
+} from '../components/ui';
 
 interface UserSettings {
   id: string;
@@ -10,110 +20,93 @@ interface UserSettings {
 
 export const Settings: React.FC = () => {
   const [settings, setSettings] = useState<UserSettings | null>(null);
-  const [maxNewCards, setMaxNewCards] = useState<number>(20);
-  const [loading, setLoading] = useState<boolean>(true);
-  const [saving, setSaving] = useState<boolean>(false);
-  const [success, setSuccess] = useState<boolean>(false);
+  const [maxNewCards, setMaxNewCards] = useState(20);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
 
   useEffect(() => {
-    fetchSettings();
+    (async () => {
+      try {
+        const res = await api.get<UserSettings>('/settings');
+        setSettings(res.data);
+        setMaxNewCards(res.data.max_new_cards_per_day);
+      } finally {
+        setLoading(false);
+      }
+    })();
   }, []);
-
-  const fetchSettings = async () => {
-    try {
-      const res = await api.get<UserSettings>('/settings');
-      setSettings(res.data);
-      setMaxNewCards(res.data.max_new_cards_per_day);
-    } catch (err) {
-      console.error('Failed to load settings:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
-    setSuccess(false);
-
+    setSaved(false);
     try {
       const res = await api.patch<UserSettings>('/settings', {
         max_new_cards_per_day: maxNewCards,
       });
       setSettings(res.data);
-      setSuccess(true);
-    } catch (err) {
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2400);
+    } catch {
       alert('Failed to update settings.');
     } finally {
       setSaving(false);
     }
   };
 
-  if (loading) {
-    return (
-      <div className="flex flex-col items-center justify-center p-24 text-slate-400">
-        <Loader2 size={36} className="animate-spin text-indigo-400 mb-3" />
-        <p className="text-sm">Loading user preferences...</p>
-      </div>
-    );
-  }
+  if (loading) return <LoadingState message="Loading preferences…" />;
 
   return (
-    <div className="space-y-8 max-w-2xl">
-      <div>
-        <h2 className="text-2xl font-bold text-white tracking-wide flex items-center gap-2">
-          <SettingsIcon className="text-indigo-400" size={28} />
-          User Preferences
-        </h2>
-        <p className="text-slate-400 text-sm mt-1">
-          Configure daily learning volume limits and view account details.
-        </p>
-      </div>
+    <div className="space-y-10 max-w-2xl">
+      <PageHeader
+        icon={SettingsIcon}
+        kicker="Account"
+        title="Preferences"
+        subtitle="Tune your daily learning volume and review account details."
+      />
 
-      <div className="bg-slate-800 border border-slate-700 rounded-xl p-6 shadow-xl space-y-6">
-        {success && (
-          <div className="flex items-center gap-3 p-4 bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 rounded-lg text-sm">
-            <CheckCircle2 size={18} />
-            <span>Settings updated successfully!</span>
-          </div>
-        )}
+      <Card>
+        <CardHeader
+          title="Daily study limits"
+          subtitle="Control how many new cards enter your rotation each day"
+          icon={SettingsIcon}
+          action={
+            <Badge variant="gold">{settings?.tier ?? 'free'}</Badge>
+          }
+        />
 
-        <form onSubmit={handleSave} className="space-y-6">
+        <form onSubmit={handleSave} className="p-6 space-y-6">
           <div>
-            <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">
-              Account Subscription Tier
-            </label>
-            <div className="inline-block px-3 py-1 bg-indigo-500/10 border border-indigo-500/30 text-indigo-300 font-mono text-xs uppercase font-bold rounded">
-              {settings?.tier || 'free'}
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2">
-              Max New Cards Per Day
-            </label>
-            <input
+            <Label hint="1 – 100">Max new cards per day</Label>
+            <Input
               type="number"
               min={1}
               max={100}
               value={maxNewCards}
               onChange={(e) => setMaxNewCards(parseInt(e.target.value) || 1)}
-              className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2.5 text-sm text-slate-100 focus:outline-none focus:border-indigo-500"
             />
-            <p className="text-xs text-slate-500 mt-1.5">
-              Limits the maximum number of new vocabulary cards introduced daily in review sessions.
+            <p className="text-xs text-zinc-500 mt-2 leading-relaxed">
+              Higher values accelerate vocabulary acquisition but increase review load.
+              We recommend 15–25 for sustainable progress.
             </p>
           </div>
 
-          <button
-            type="submit"
-            disabled={saving}
-            className="flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-700 text-white px-6 py-2.5 rounded-lg text-sm font-semibold transition-colors"
-          >
-            {saving ? <Loader2 size={16} className="animate-spin" /> : 'Save Changes'}
-          </button>
+          <div className="flex items-center justify-between pt-2">
+            <div className="h-5">
+              {saved && (
+                <span className="inline-flex items-center gap-2 text-xs text-emerald-400 animate-fade-in">
+                  <CheckCircle2 size={14} />
+                  Saved
+                </span>
+              )}
+            </div>
+            <Button type="submit" loading={saving}>
+              Save changes
+            </Button>
+          </div>
         </form>
-      </div>
+      </Card>
     </div>
   );
 };
