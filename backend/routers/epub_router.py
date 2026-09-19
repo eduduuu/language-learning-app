@@ -2,7 +2,7 @@ from fastapi import APIRouter, UploadFile, File, Form, Header, HTTPException, st
 from typing import List
 from uuid import UUID
 
-from schemas.epub import EPUBProcessResponse, BookResponse, BookDeleteResponse
+from schemas.epub import EPUBAnalyzeResponse, EPUBProcessResponse, BookResponse, BookDeleteResponse
 from services.epub_service import EPUBService
 from repositories.book_repository import BookRepository
 
@@ -53,3 +53,20 @@ async def delete_book(book_id: UUID, x_user_id: str = Header(...)):
     if not deleted:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Book not found or unauthorized")
     return BookDeleteResponse(message="Book deleted successfully", book_id=book_id)
+
+@router.post("/analyze", response_model=EPUBAnalyzeResponse)
+async def analyze_epub(
+    file: UploadFile = File(...),
+    language: str = Form("japanese"),
+    start_page: int = Form(1),
+    end_page: int = Form(10),
+    x_user_id: str = Header(..., description="Supabase User UUID")
+):
+    file_bytes = await file.read()
+    return epub_service.analyze_epub(
+        user_id=x_user_id,
+        file_bytes=file_bytes,
+        language=language,
+        start_page=start_page,
+        end_page=end_page
+    )

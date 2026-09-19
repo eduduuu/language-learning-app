@@ -3,6 +3,12 @@ from typing import List, Optional, Literal
 from uuid import UUID
 from datetime import datetime
 
+class WordDetail(BaseModel):
+    base_word: str
+    conjugated_word: str
+    reading: str
+    meaning: str
+
 class VocabGenerateRequest(BaseModel):
     mode: Literal["jlpt", "books"]
     language: Literal["japanese", "english"] = "japanese"
@@ -18,7 +24,7 @@ class VocabCardResponse(BaseModel):
     words: List[str]
     sentence: str
     translation: str
-    reading_notes: Optional[str] = None
+    word_details: List[WordDetail]
 
 class SRSReviewRequest(BaseModel):
     word: str
@@ -28,6 +34,8 @@ class SRSReviewRequest(BaseModel):
 class SRSReviewResponse(BaseModel):
     word: str
     next_review_date: datetime
-    interval: int
-    ease_factor: float
-    step_count: int
+    state: int
+    difficulty: float
+    stability: float
+    reps: int
+    lapses: int

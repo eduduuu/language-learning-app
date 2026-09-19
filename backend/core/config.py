@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     # LLM Provider Configuration
     DEFAULT_LLM_PROVIDER: str = "groq"
     GROQ_API_KEY: str
+    GEMINI_API_KEY: str
 
     model_config = SettingsConfigDict(
         env_file=".env",

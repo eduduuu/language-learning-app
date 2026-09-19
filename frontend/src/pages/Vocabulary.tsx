@@ -8,11 +8,18 @@ interface SavedBook {
   language: string;
 }
 
+interface WordDetail {
+  base_word: string;
+  conjugated_word: string;
+  reading: string;
+  meaning: string;
+}
+
 interface VocabCard {
   words: string[];
   sentence: string;
   translation: string;
-  reading_notes?: string;
+  word_details: WordDetail[];
 }
 
 export const Vocabulary: React.FC = () => {
@@ -104,6 +111,25 @@ export const Vocabulary: React.FC = () => {
     } finally {
       setReviewing(false);
     }
+  };
+
+  // Helper function to safely highlight conjugated words in the sentence
+  const renderHighlightedSentence = (sentence: string, details: WordDetail[]) => {
+    if (!details || details.length === 0) return sentence;
+
+    // Extract unique conjugated words and sort by length descending to avoid partial matches
+    const conjugatedWords = [...new Set(details.map(d => d.conjugated_word))].sort((a, b) => b.length - a.length);
+    
+    // Split the sentence by the target words
+    const pattern = new RegExp(`(${conjugatedWords.join('|')})`, 'g');
+    const parts = sentence.split(pattern);
+
+    return parts.map((part, i) => {
+      if (conjugatedWords.includes(part)) {
+        return <span key={i} className="text-indigo-400 font-bold">{part}</span>;
+      }
+      return part;
+    });
   };
 
   return (
@@ -325,40 +351,40 @@ export const Vocabulary: React.FC = () => {
               )}
 
               <div className="space-y-6">
-                {/* Words Header */}
-                <div>
-                  <span className="text-[10px] uppercase tracking-wider font-semibold text-slate-400">Target Vocabulary</span>
-                  <div className="flex flex-wrap gap-2 mt-2">
-                    {card.words.map((w, idx) => (
-                      <span
-                        key={idx}
-                        className="px-3 py-1 bg-indigo-500/10 border border-indigo-500/30 text-indigo-300 font-bold rounded-md text-sm"
-                      >
-                        {w}
-                      </span>
-                    ))}
-                  </div>
-                </div>
 
                 {/* Primary Sentence */}
                 <div className="bg-slate-900/80 p-6 rounded-xl border border-slate-700/80">
                   <p className="text-2xl font-serif text-slate-100 tracking-wide leading-relaxed">
-                    {card.sentence}
+                    {renderHighlightedSentence(card.sentence, card.word_details)}
                   </p>
-                  {card.reading_notes && (
-                    <p className="text-xs font-mono text-slate-400 mt-3 pt-3 border-t border-slate-800">
-                      Reading Notes: {card.reading_notes}
-                    </p>
-                  )}
                 </div>
 
-                {/* Translation Reveal Area */}
+                {/* Translation & Breakdown Reveal Area */}
                 {showAnswer ? (
-                  <div className="p-5 bg-indigo-950/30 border border-indigo-500/20 rounded-xl text-indigo-200 text-base animate-fadeIn">
-                    <span className="text-[10px] uppercase tracking-wider font-bold text-indigo-400 block mb-1">
-                      Translation
-                    </span>
-                    {card.translation}
+                  <div className="space-y-4 animate-fadeIn">
+                    <div className="p-5 bg-indigo-950/30 border border-indigo-500/20 rounded-xl text-indigo-200 text-base">
+                      <span className="text-[10px] uppercase tracking-wider font-bold text-indigo-400 block mb-1">
+                        Translation
+                      </span>
+                      {card.translation}
+                    </div>
+
+                    <div className="p-5 bg-slate-900/50 border border-slate-700 rounded-xl">
+                      <span className="text-[10px] uppercase tracking-wider font-bold text-slate-400 block mb-3">
+                        Vocabulary Breakdown
+                      </span>
+                      <div className="space-y-3">
+                        {card.word_details.map((wd, i) => (
+                          <div key={i} className="flex flex-col text-sm border-l-2 border-indigo-500/50 pl-3">
+                            <div className="flex items-baseline gap-2">
+                              <span className="font-bold text-slate-200 text-base">{wd.base_word}</span>
+                              <span className="text-slate-400 font-mono text-xs">{wd.reading}</span>
+                            </div>
+                            <span className="text-slate-300 mt-1">{wd.meaning}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
                   </div>
                 ) : (
                   <button
@@ -366,7 +392,7 @@ export const Vocabulary: React.FC = () => {
                     className="w-full py-4 bg-slate-900/40 border border-slate-700/60 hover:bg-slate-700/30 text-slate-300 rounded-xl text-sm font-medium flex items-center justify-center gap-2 transition-colors"
                   >
                     <Eye size={18} />
-                    Reveal Translation
+                    Reveal Translation & Notes
                   </button>
                 )}
               </div>
@@ -375,7 +401,7 @@ export const Vocabulary: React.FC = () => {
               {showAnswer && (
                 <div className="mt-8 pt-6 border-t border-slate-700/80 space-y-3">
                   <span className="text-xs font-semibold text-slate-400 block text-center">
-                    Rate Recall Difficulty (SM-2 SRS Algorithm)
+                    Rate Recall Difficulty (FSRS Algorithm)
                   </span>
                   <div className="grid grid-cols-4 gap-3">
                     <button

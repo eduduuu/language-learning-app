@@ -1,3 +1,4 @@
+# In routers/vocabulary_router.py
 from fastapi import APIRouter, Header
 from schemas.vocabulary import (
     VocabGenerateRequest,
@@ -28,10 +29,13 @@ async def review_card(
         language=req.language,
         rating=req.rating
     )
+    
     return SRSReviewResponse(
         word=card_data["word"],
         next_review_date=card_data["next_review_date"],
-        interval=card_data["interval"],
-        ease_factor=card_data["ease_factor"],
-        step_count=card_data["step_count"]
+        state=card_data.get("state", 0),
+        difficulty=card_data.get("difficulty", 0.0),
+        stability=card_data.get("stability", 0.0),
+        reps=card_data.get("reps", 0),
+        lapses=card_data.get("lapses", 0)
     )

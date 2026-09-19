@@ -15,11 +15,12 @@ class BookRepository:
         return response.count if response.count is not None else len(response.data)
 
     @staticmethod
-    def create_book(user_id: str, title: str, language: str) -> Dict[str, Any]:
+    def create_book(user_id: str, title: str, language: str, cover_url: str = None) -> Dict[str, Any]:
         response = supabase.table("books").insert({
             "user_id": user_id,
             "title": title,
-            "language": language
+            "language": language,
+            "cover_url": cover_url
         }).execute()
         return response.data[0]
 
