@@ -237,3 +237,48 @@ class SRSRepository:
         )
 
         return response.data or []
+
+    @staticmethod
+    def get_learned_words(
+        user_id: str,
+        language: str
+    ):
+        response = supabase.table("srs_cards") \
+            .select("word,state") \
+            .eq("user_id", user_id) \
+            .eq("language", language) \
+            .execute()
+
+        return response.data or []
+
+    @staticmethod
+    def get_book_vocabulary(
+        book_id: str,
+        start_page: int | None = None,
+        end_page: int | None = None
+    ):
+        query = supabase.table("book_pages") \
+            .select("vocabulary,page_number") \
+            .eq("book_id", book_id)
+
+        if start_page is not None:
+            query = query.gte(
+                "page_number",
+                start_page
+            )
+
+        if end_page is not None:
+            query = query.lte(
+                "page_number",
+                end_page
+            )
+
+        response = query.execute()
+
+        vocabulary = set()
+
+        for page in response.data or []:
+            for word in page.get("vocabulary", []):
+                vocabulary.add(word)
+
+        return vocabulary

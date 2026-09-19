@@ -7,6 +7,7 @@ import type {
   LocalBook,
   LocalBookFile,
   LocalChapter,
+  LocalToken,
 } from '../types/book';
 
 import {
@@ -25,7 +26,11 @@ async function sha256(file: Blob): Promise<string> {
 
 async function loadChapters(bookId: string): Promise<LocalChapter[]> {
   const db = await dbPromise;
-  const chapters = await db.getAllFromIndex('chapters', 'bookId', bookId);
+  const chapters = await db.getAllFromIndex(
+    'chapters',
+    'bookId',
+    bookId
+  );
 
   return chapters.sort((a, b) => a.index - b.index);
 }
@@ -36,22 +41,35 @@ async function saveImportedBook(
   file: LocalBookFile
 ): Promise<void> {
   const db = await dbPromise;
+
   const transaction = db.transaction(
     ['books', 'chapters', 'files'],
     'readwrite'
   );
 
-  transaction.objectStore('books').put(summary, summary.id);
-  transaction.objectStore('files').put(file, file.bookId);
+  transaction.objectStore('books').put(
+    summary,
+    summary.id
+  );
+
+  transaction.objectStore('files').put(
+    file,
+    file.bookId
+  );
 
   for (const chapter of chapters) {
-    transaction.objectStore('chapters').put(chapter, chapter.id);
+    transaction.objectStore('chapters').put(
+      chapter,
+      chapter.id
+    );
   }
 
   await transaction.done;
 }
 
-async function deleteBookData(bookId: string): Promise<void> {
+async function deleteBookData(
+  bookId: string
+): Promise<void> {
   const db = await dbPromise;
   const chapters = await loadChapters(bookId);
 
@@ -64,7 +82,9 @@ async function deleteBookData(bookId: string): Promise<void> {
   transaction.objectStore('files').delete(bookId);
 
   for (const chapter of chapters) {
-    transaction.objectStore('chapters').delete(chapter.id);
+    transaction.objectStore('chapters').delete(
+      chapter.id
+    );
   }
 
   await transaction.done;
@@ -86,8 +106,14 @@ export async function getLocalBook(
 ): Promise<LocalBook | null> {
   const db = await dbPromise;
 
-  const summary = await db.get('books', bookId);
-  if (!summary) return null;
+  const summary = await db.get(
+    'books',
+    bookId
+  );
+
+  if (!summary) {
+    return null;
+  }
 
   const chapters = await loadChapters(bookId);
   const file = await db.get('files', bookId);
@@ -99,11 +125,19 @@ export async function getLocalBook(
   };
 }
 
-export async function touchLocalBook(bookId: string): Promise<void> {
+export async function touchLocalBook(
+  bookId: string
+): Promise<void> {
   const db = await dbPromise;
-  const summary = await db.get('books', bookId);
 
-  if (!summary) return;
+  const summary = await db.get(
+    'books',
+    bookId
+  );
+
+  if (!summary) {
+    return;
+  }
 
   await db.put(
     'books',
@@ -115,7 +149,44 @@ export async function touchLocalBook(bookId: string): Promise<void> {
   );
 }
 
-export async function deleteLocalBook(bookId: string): Promise<void> {
+/**
+ * Persist the reader bookmark.
+ *
+ * We only need chapterId + sentenceId.
+ * The paragraph can be reconstructed from the sentence
+ * when the book is opened again.
+ */
+export async function updateLocalBookPosition(
+  bookId: string,
+  chapterId: string,
+  sentenceId: string
+): Promise<void> {
+  const db = await dbPromise;
+
+  const summary = await db.get(
+    'books',
+    bookId
+  );
+
+  if (!summary) {
+    return;
+  }
+
+  await db.put(
+    'books',
+    {
+      ...summary,
+      currentChapterId: chapterId,
+      currentSentenceId: sentenceId,
+      lastOpenedAt: new Date().toISOString(),
+    },
+    bookId
+  );
+}
+
+export async function deleteLocalBook(
+  bookId: string
+): Promise<void> {
   await deleteBookData(bookId);
 }
 
@@ -124,9 +195,15 @@ export async function updateLocalBookStatus(
   status: BookStatus
 ): Promise<void> {
   const db = await dbPromise;
-  const summary = await db.get('books', bookId);
 
-  if (!summary) return;
+  const summary = await db.get(
+    'books',
+    bookId
+  );
+
+  if (!summary) {
+    return;
+  }
 
   await db.put(
     'books',
@@ -138,6 +215,182 @@ export async function updateLocalBookStatus(
   );
 }
 
+/**
+ * Find a sentence containing a target lemma in the
+ * locally stored EPUB.
+ *
+ * IMPORTANT:
+ * We search the local IndexedDB copy.
+ * We do NOT need the EPUB or sentences in Supabase.
+ */
+export interface LocalSentence {
+  sentence: string;
+  conjugatedWord?: string;
+  reading?: string;
+  meaning?: string;
+}
+
+export async function findSentenceInBook(
+  bookId: string,
+  targetWord: string
+): Promise<LocalSentence | null> {
+  const book = await getLocalBook(bookId);
+
+  if (!book) {
+    return null;
+  }
+
+  const normalizedTarget = targetWord
+    .trim()
+    .toLocaleLowerCase();
+
+  if (!normalizedTarget) {
+    return null;
+  }
+
+  for (const chapter of book.chapters) {
+    for (const paragraph of chapter.paragraphs) {
+      for (const sentence of paragraph.sentences) {
+        const matchingToken = sentence.tokens.find(
+          (token: LocalToken) => {
+            if (token.isWordLike === false) {
+              return false;
+            }
+
+            const lemma =
+              token.lemma?.trim() ||
+              token.dictionaryForm?.trim() ||
+              token.surface?.trim();
+
+            return (
+              lemma?.toLocaleLowerCase() ===
+              normalizedTarget
+            );
+          }
+        );
+
+        if (!matchingToken) {
+          continue;
+        }
+
+        return {
+          sentence: sentence.text,
+          conjugatedWord:
+            matchingToken.surface ||
+            matchingToken.lemma ||
+            normalizedTarget,
+          reading: matchingToken.reading,
+        };
+      }
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Return all unique lemmas in a locally stored book.
+ *
+ * Used for book mastery.
+ */
+export async function getBookLemmas(
+  bookId: string
+): Promise<Set<string>> {
+  const book = await getLocalBook(bookId);
+
+  const result = new Set<string>();
+
+  if (!book) {
+    return result;
+  }
+
+  for (const chapter of book.chapters) {
+    for (const paragraph of chapter.paragraphs) {
+      for (const sentence of paragraph.sentences) {
+        for (const token of sentence.tokens) {
+          if (token.isWordLike === false) {
+            continue;
+          }
+
+          const lemma =
+            token.lemma?.trim() ||
+            token.dictionaryForm?.trim() ||
+            token.surface?.trim();
+
+          if (lemma) {
+            result.add(lemma);
+          }
+        }
+      }
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Calculate book mastery from the global SRS cards.
+ *
+ * A word counts as learned when its SRS state is
+ * a learning/review state rather than New.
+ *
+ * FSRS state:
+ * 0 = New
+ * 1 = Learning
+ * 2 = Review
+ * 3 = Relearning
+ *
+ * We treat Review (2) as learned for book mastery.
+ */
+export async function calculateLocalBookMastery(
+  bookId: string,
+  srsCards: Array<{
+    word: string;
+    state: number;
+  }>
+): Promise<{
+  mastery: number;
+  knownWords: number;
+  totalWords: number;
+}> {
+  const bookWords = await getBookLemmas(bookId);
+
+  const learnedWords = new Set(
+    srsCards
+      .filter((card) => card.state === 2)
+      .map((card) =>
+        card.word.trim().toLocaleLowerCase()
+      )
+  );
+
+  let knownWords = 0;
+
+  for (const word of bookWords) {
+    if (
+      learnedWords.has(
+        word.trim().toLocaleLowerCase()
+      )
+    ) {
+      knownWords += 1;
+    }
+  }
+
+  const totalWords = bookWords.size;
+
+  const mastery =
+    totalWords === 0
+      ? 0
+      : Math.round(
+          (knownWords / totalWords) * 100
+        );
+
+  return {
+    mastery,
+    knownWords,
+    totalWords,
+  };
+}
+
 export async function createLocalBookFromEpub(
   title: string,
   language: BookLanguage,
@@ -147,71 +400,119 @@ export async function createLocalBookFromEpub(
   await requestPersistentStorage();
 
   const reportProgress =
-    typeof onProgress === 'function' ? onProgress : () => {};
+    typeof onProgress === 'function'
+      ? onProgress
+      : () => {};
 
   reportProgress('Checking EPUB…');
 
-  const fingerprint = await sha256(sourceFile);
-  const bookId = `local-${fingerprint.slice(0, 24)}`;
-  const createdAt = new Date().toISOString();
+  const fingerprint =
+    await sha256(sourceFile);
 
-  const existing = await getLocalBook(bookId);
+  const bookId =
+    `local-${fingerprint.slice(0, 24)}`;
+
+  const createdAt =
+    new Date().toISOString();
+
+  const existing =
+    await getLocalBook(bookId);
 
   if (existing) {
-    reportProgress('This EPUB is already in your local library.');
+    reportProgress(
+      'This EPUB is already in your local library.'
+    );
+
     return existing.summary;
   }
 
-  reportProgress('Parsing EPUB locally…');
-
-  const chapters = await parseEpubFile(
-    bookId,
-    sourceFile,
-    language,
-    reportProgress
+  reportProgress(
+    'Parsing EPUB locally…'
   );
 
+  const chapters =
+    await parseEpubFile(
+      bookId,
+      sourceFile,
+      language,
+      reportProgress
+    );
+
   if (chapters.length === 0) {
-    throw new Error('No readable chapters were found in this EPUB.');
+    throw new Error(
+      'No readable chapters were found in this EPUB.'
+    );
   }
 
-  const uniqueLemmas = new Set<string>();
+  const uniqueLemmas =
+    new Set<string>();
 
   for (const chapter of chapters) {
     for (const paragraph of chapter.paragraphs) {
       for (const sentence of paragraph.sentences) {
         for (const token of sentence.tokens) {
-          if (token.isWordLike !== false) {
-            const lemma = token.lemma?.trim() || token.surface.trim();
-            if (lemma) uniqueLemmas.add(lemma);
+          if (token.isWordLike === false) {
+            continue;
+          }
+
+          const lemma =
+            token.lemma?.trim() ||
+            token.surface.trim();
+
+          if (lemma) {
+            uniqueLemmas.add(lemma);
           }
         }
       }
     }
   }
 
-  const firstChapter = chapters[0];
+  const firstChapter =
+    chapters[0];
+
   const firstSentence =
-    firstChapter?.paragraphs[0]?.sentences[0];
+    firstChapter
+      ?.paragraphs[0]
+      ?.sentences[0];
 
   const summary: BookSummary = {
     id: bookId,
+
     title:
       title.trim() ||
-      sourceFile.name.replace(/\.epub$/i, ''),
+      sourceFile.name.replace(
+        /\.epub$/i,
+        ''
+      ),
+
     language,
+
     status: 'learning',
+
     fingerprint,
+
     mastery: 0,
+
     knownWords: 0,
-    totalWords: uniqueLemmas.size,
+
+    totalWords:
+      uniqueLemmas.size,
+
     createdAt,
-    lastOpenedAt: createdAt,
-    currentChapterId: firstChapter?.id,
-    currentSentenceId: firstSentence?.id,
+
+    lastOpenedAt:
+      createdAt,
+
+    currentChapterId:
+      firstChapter?.id,
+
+    currentSentenceId:
+      firstSentence?.id,
   };
 
-  reportProgress('Saving book locally…');
+  reportProgress(
+    'Saving book locally…'
+  );
 
   await saveImportedBook(
     summary,
@@ -220,27 +521,46 @@ export async function createLocalBookFromEpub(
       bookId,
       blob: sourceFile,
       fileName: sourceFile.name,
-      mimeType: sourceFile.type || 'application/epub+zip',
+      mimeType:
+        sourceFile.type ||
+        'application/epub+zip',
     }
   );
 
-  reportProgress('Book ready.');
+  reportProgress(
+    'Book ready.'
+  );
+
   return summary;
 }
 
 /**
- * Development-only helper. Remove before production.
+ * Development-only helper.
+ * Remove before production.
  */
 export async function seedMockBooks(): Promise<void> {
   const db = await dbPromise;
-  const seeded = await db.get('meta', 'mock-books-seeded');
 
-  if (seeded === 'true') return;
+  const seeded =
+    await db.get(
+      'meta',
+      'mock-books-seeded'
+    );
 
-  const existingBooks = await db.getAll('books');
+  if (seeded === 'true') {
+    return;
+  }
+
+  const existingBooks =
+    await db.getAll('books');
 
   if (existingBooks.length > 0) {
-    await db.put('meta', 'true', 'mock-books-seeded');
+    await db.put(
+      'meta',
+      'true',
+      'mock-books-seeded'
+    );
+
     return;
   }
 
@@ -248,7 +568,8 @@ export async function seedMockBooks(): Promise<void> {
     {
       id: 'demo-sukamoka',
       title: 'Sukamoka',
-      status: 'learning' as BookStatus,
+      status:
+        'learning' as BookStatus,
       mastery: 73,
       knownWords: 1420,
       totalWords: 2180,
@@ -256,15 +577,18 @@ export async function seedMockBooks(): Promise<void> {
     {
       id: 'demo-kokoro',
       title: 'Kokoro',
-      status: 'on_hold' as BookStatus,
+      status:
+        'on_hold' as BookStatus,
       mastery: 48,
       knownWords: 820,
       totalWords: 2010,
     },
     {
       id: 'demo-reader',
-      title: 'Another Japanese Reader',
-      status: 'completed' as BookStatus,
+      title:
+        'Another Japanese Reader',
+      status:
+        'completed' as BookStatus,
       mastery: 96,
       knownWords: 1940,
       totalWords: 2020,
@@ -272,7 +596,8 @@ export async function seedMockBooks(): Promise<void> {
   ];
 
   for (const demo of demoBooks) {
-    const createdAt = new Date().toISOString();
+    const createdAt =
+      new Date().toISOString();
 
     await db.put(
       'books',
@@ -281,18 +606,28 @@ export async function seedMockBooks(): Promise<void> {
         title: demo.title,
         language: 'japanese',
         status: demo.status,
-        fingerprint: `demo-${demo.id}`,
+        fingerprint:
+          `demo-${demo.id}`,
         mastery: demo.mastery,
-        knownWords: demo.knownWords,
-        totalWords: demo.totalWords,
+        knownWords:
+          demo.knownWords,
+        totalWords:
+          demo.totalWords,
         createdAt,
-        lastOpenedAt: createdAt,
-        currentChapterId: `${demo.id}-ch-1`,
-        currentSentenceId: `${demo.id}-s-2`,
+        lastOpenedAt:
+          createdAt,
+        currentChapterId:
+          `${demo.id}-ch-1`,
+        currentSentenceId:
+          `${demo.id}-s-2`,
       },
       demo.id
     );
   }
 
-  await db.put('meta', 'true', 'mock-books-seeded');
+  await db.put(
+    'meta',
+    'true',
+    'mock-books-seeded'
+  );
 }

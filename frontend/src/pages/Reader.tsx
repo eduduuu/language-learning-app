@@ -1,4 +1,10 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
+
 import {
   ArrowLeft,
   BookOpen,
@@ -14,21 +20,37 @@ import {
   X,
 } from 'lucide-react';
 
-import { Badge, Button } from '../components/ui';
-import { getLocalBook, touchLocalBook } from '../lib/localBookStore';
+import {
+  Badge,
+  Button,
+} from '../components/ui';
+
+import {
+  calculateLocalBookMastery,
+  getLocalBook,
+  touchLocalBook,
+  updateLocalBookPosition,
+} from '../lib/localBookStore';
+
 import {
   lookupJapanese,
   type DictionaryEntry,
 } from '../lib/dictionary/japanese';
-import type { LocalBook, LocalToken } from '../types/book';
+
+import type {
+  LocalBook,
+  LocalToken,
+} from '../types/book';
+
 import {
   addSRSCard,
   getSRSCards,
-  type SRSCard,
+  translateSentence,
 } from '../lib/api';
 
 interface ReaderProps {
   bookId: string;
+
   onNavigate: (
     tab: 'home',
     params?: { bookId?: string }
@@ -40,84 +62,554 @@ interface TokenDetails extends LocalToken {
   partOfSpeech?: string;
 }
 
-
 export const Reader: React.FC<ReaderProps> = ({
   bookId,
   onNavigate,
 }) => {
-  const [book, setBook] = useState<LocalBook | null>(null);
-  const [activeChapterIndex, setActiveChapterIndex] = useState(0);
+  const [book, setBook] =
+    useState<LocalBook | null>(null);
+
+  const [activeChapterIndex, setActiveChapterIndex] =
+    useState(0);
+
   const [selectedWord, setSelectedWord] =
     useState<TokenDetails | null>(null);
 
   const [savedWords, setSavedWords] =
-  useState<Set<string>>(new Set());
+    useState<Set<string>>(new Set());
 
   const [addingWord, setAddingWord] =
     useState(false);
 
-  useEffect(() => {
-  let mounted = true;
+  const [mastery, setMastery] =
+    useState(0);
 
-  async function loadSRS() {
-    try {
-      const cards = await getSRSCards('japanese');
+  const [knownWords, setKnownWords] =
+    useState(0);
 
-      if (!mounted) return;
+  const [totalWords, setTotalWords] =
+    useState(0);
 
-      setSavedWords(
-        new Set(
-          cards.map((card) => card.word)
-        )
-      );
-    } catch (error) {
-      console.error(
-        'Failed to load SRS cards:',
-        error
-      );
-    }
-  }
+  /* ==========================================================
+     SENTENCE TRANSLATION
+     ========================================================== */
 
-  loadSRS();
+  const [selectedSentenceId, setSelectedSentenceId] =
+    useState<string | null>(null);
 
-  return () => {
-    mounted = false;
-  };
-}, []);
+  const [selectedSentence, setSelectedSentence] =
+    useState<string | null>(null);
 
+  const [sentenceTranslation, setSentenceTranslation] =
+    useState<string | null>(null);
+
+  const [translatingSentence, setTranslatingSentence] =
+    useState(false);
+
+  const [translationError, setTranslationError] =
+    useState<string | null>(null);
+
+  const paragraphRefs =
+    useRef<Record<string, HTMLDivElement | null>>(
+      {},
+    );
+
+  const restoredBookmark =
+    useRef(false);
+
+  const saveTimer =
+    useRef<ReturnType<typeof setTimeout> | null>(
+      null,
+    );
+
+  const clickTimer =
+    useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  /* ==========================================================
+     LOAD SRS CARDS
+     ========================================================== */
 
   useEffect(() => {
     let mounted = true;
 
-    getLocalBook(bookId).then(async (result) => {
-      if (!mounted || !result) return;
+    async function loadSRS() {
+      try {
+        const cards =
+          await getSRSCards(
+            'japanese',
+          );
 
-      setBook(result);
+        if (!mounted) {
+          return;
+        }
 
-      const index = result.chapters.findIndex(
-        (chapter) =>
-          chapter.id === result.summary.currentChapterId
-      );
+        setSavedWords(
+          new Set(
+            cards.map(
+              (card) =>
+                card.word,
+            ),
+          ),
+        );
 
-      setActiveChapterIndex(index >= 0 ? index : 0);
+        const progress =
+          await calculateLocalBookMastery(
+            bookId,
+            cards,
+          );
 
-      await touchLocalBook(bookId);
-    });
+        if (!mounted) {
+          return;
+        }
+
+        setMastery(
+          progress.mastery,
+        );
+
+        setKnownWords(
+          progress.knownWords,
+        );
+
+        setTotalWords(
+          progress.totalWords,
+        );
+      } catch (error) {
+        console.error(
+          'Failed to load SRS cards:',
+          error,
+        );
+      }
+    }
+
+    void loadSRS();
 
     return () => {
       mounted = false;
     };
   }, [bookId]);
 
-  const activeChapter = useMemo(() => {
-    if (!book) return null;
+  /* ==========================================================
+     LOAD LOCAL BOOK
+     ========================================================== */
 
-    return (
-      book.chapters[activeChapterIndex] ?? null
+  useEffect(() => {
+    let mounted = true;
+
+    async function loadBook() {
+      const result =
+        await getLocalBook(
+          bookId,
+        );
+
+      if (!mounted || !result) {
+        return;
+      }
+
+      setBook(result);
+
+      const savedChapterIndex =
+        result.chapters.findIndex(
+          (chapter) =>
+            chapter.id ===
+            result.summary
+              .currentChapterId,
+        );
+
+      setActiveChapterIndex(
+        savedChapterIndex >= 0
+          ? savedChapterIndex
+          : 0,
+      );
+
+      await touchLocalBook(
+        bookId,
+      );
+    }
+
+    void loadBook();
+
+    return () => {
+      mounted = false;
+    };
+  }, [bookId]);
+
+  /* ==========================================================
+     RESTORE BOOKMARK
+     ========================================================== */
+
+  useEffect(() => {
+    if (
+      !book ||
+      restoredBookmark.current
+    ) {
+      return;
+    }
+
+    const sentenceId =
+      book.summary
+        .currentSentenceId;
+
+    if (!sentenceId) {
+      restoredBookmark.current = true;
+      return;
+    }
+
+    const timeout =
+      window.setTimeout(() => {
+        const element =
+          document.getElementById(
+            `sentence-${sentenceId}`,
+          );
+
+        if (element) {
+          element.scrollIntoView({
+            behavior: 'auto',
+            block: 'center',
+          });
+        }
+
+        restoredBookmark.current = true;
+      }, 100);
+
+    return () => {
+      window.clearTimeout(
+        timeout,
+      );
+    };
+  }, [
+    book,
+    activeChapterIndex,
+  ]);
+
+  /* ==========================================================
+     SAVE READING POSITION
+     ========================================================== */
+
+  useEffect(() => {
+    if (!book) {
+      return;
+    }
+
+    const observer =
+      new IntersectionObserver(
+        (entries) => {
+          const visible =
+            entries
+              .filter(
+                (entry) =>
+                  entry.isIntersecting,
+              )
+              .sort(
+                (a, b) =>
+                  a.boundingClientRect
+                    .top -
+                  b.boundingClientRect
+                    .top,
+              );
+
+          const first =
+            visible[0];
+
+          if (!first) {
+            return;
+          }
+
+          const sentenceId =
+            first.target.getAttribute(
+              'data-sentence-id',
+            );
+
+          const chapterId =
+            first.target.getAttribute(
+              'data-chapter-id',
+            );
+
+          if (
+            !sentenceId ||
+            !chapterId
+          ) {
+            return;
+          }
+
+          if (saveTimer.current) {
+            clearTimeout(
+              saveTimer.current,
+            );
+          }
+
+          saveTimer.current =
+            setTimeout(() => {
+              updateLocalBookPosition(
+                bookId,
+                chapterId,
+                sentenceId,
+              ).catch((error) => {
+                console.error(
+                  'Failed to save reading position:',
+                  error,
+                );
+              });
+            }, 500);
+        },
+        {
+          root: null,
+          threshold: 0.25,
+        },
+      );
+
+    Object.values(
+      paragraphRefs.current,
+    ).forEach((element) => {
+      if (element) {
+        observer.observe(
+          element,
+        );
+      }
+    });
+
+    return () => {
+      observer.disconnect();
+
+      if (saveTimer.current) {
+        clearTimeout(
+          saveTimer.current,
+        );
+      }
+    };
+  }, [
+    book,
+    activeChapterIndex,
+    bookId,
+  ]);
+
+  const activeChapter =
+    useMemo(() => {
+      if (!book) {
+        return null;
+      }
+
+      return (
+        book.chapters[
+          activeChapterIndex
+        ] ?? null
+      );
+    }, [
+      book,
+      activeChapterIndex,
+    ]);
+
+  /* ==========================================================
+     SELECT WORD
+     ========================================================== */
+
+  const handleSelectToken = (
+    token: LocalToken,
+  ) => {
+    if (token.isWordLike === false) {
+      return;
+    }
+
+    if (clickTimer.current) {
+      clearTimeout(clickTimer.current);
+    }
+
+    clickTimer.current = setTimeout(() => {
+      setSelectedSentence(null);
+      setSentenceTranslation(null);
+      setTranslationError(null);
+
+      setSelectedWord(
+        token as TokenDetails,
+      );
+    }, 220);
+  };
+  const handleDoubleClickSentence = async (
+    sentenceId: string,
+    sentence: string,
+  ) => {
+    if (clickTimer.current) {
+      clearTimeout(clickTimer.current);
+      clickTimer.current = null;
+    }
+
+    // Double click = sentence mode.
+    // Never show dictionary.
+    setSelectedWord(null);
+
+    await handleTranslateSentence(
+      sentenceId,
+      sentence,
     );
-  }, [book, activeChapterIndex]);
+  };
 
-  if (!book || !book.chapters.length) {
+  /* ==========================================================
+     TRANSLATE ONLY THE SELECTED SENTENCE
+     ========================================================== */
+
+  const handleTranslateSentence = async (
+    sentenceId: string,
+    sentence: string,
+  ) => {
+    if (
+      !sentence.trim() ||
+      translatingSentence
+    ) {
+      return;
+    }
+
+    setSelectedWord(null);
+
+    setSelectedSentenceId(sentenceId);
+    setSelectedSentence(sentence);
+
+    setSentenceTranslation(null);
+    setTranslationError(null);
+    setTranslatingSentence(true);
+
+    try {
+      const result =
+        await translateSentence({
+          sentence,
+          language: 'japanese',
+        });
+
+      setSentenceTranslation(
+        result.translation,
+      );
+    } catch (error) {
+      console.error(
+        'Failed to translate sentence:',
+        error,
+      );
+
+      setTranslationError(
+        'Could not translate this sentence.',
+      );
+    } finally {
+      setTranslatingSentence(false);
+    }
+  };
+
+  /* ==========================================================
+     ADD WORD TO SRS
+     ========================================================== */
+
+  const handleAddCard = async () => {
+    if (
+      !selectedWord ||
+      addingWord
+    ) {
+      return;
+    }
+
+    const word =
+      selectedWord.lemma ||
+      selectedWord.dictionaryForm ||
+      selectedWord.surface;
+
+    if (!word.trim()) {
+      return;
+    }
+
+    try {
+      setAddingWord(true);
+
+      const card =
+        await addSRSCard({
+          word,
+          language:
+            'japanese',
+        });
+
+      setSavedWords(
+        (previous) => {
+          const next =
+            new Set(previous);
+
+          next.add(card.word);
+
+          return next;
+        },
+      );
+
+      const cards =
+        await getSRSCards(
+          'japanese',
+        );
+
+      const progress =
+        await calculateLocalBookMastery(
+          bookId,
+          cards,
+        );
+
+      setMastery(
+        progress.mastery,
+      );
+
+      setKnownWords(
+        progress.knownWords,
+      );
+
+      setTotalWords(
+        progress.totalWords,
+      );
+    } catch (error) {
+      console.error(
+        'Failed to add word to SRS:',
+        error,
+      );
+
+      window.alert(
+        'Could not add this word to SRS.',
+      );
+    } finally {
+      setAddingWord(false);
+    }
+  };
+
+  /* ==========================================================
+     CHAPTER NAVIGATION
+     ========================================================== */
+
+  const goToChapter = async (
+    index: number,
+  ) => {
+    setSelectedWord(null);
+    setSelectedSentenceId(null);
+    setSelectedSentence(null);
+    setSentenceTranslation(null);
+    setTranslationError(null);
+
+    const nextChapter =
+      book.chapters[index];
+
+    if (!nextChapter) {
+      return;
+    }
+
+    const firstSentence =
+      nextChapter
+        .paragraphs[0]
+        ?.sentences[0];
+
+    setActiveChapterIndex(
+      index,
+    );
+
+    if (firstSentence) {
+      await updateLocalBookPosition(
+        bookId,
+        nextChapter.id,
+        firstSentence.id,
+      );
+    }
+  };
+
+  if (
+    !book ||
+    !book.chapters.length
+  ) {
     return (
       <div className="flex items-center justify-center min-h-[500px]">
         <div className="text-sm text-zinc-500">
@@ -137,62 +629,6 @@ export const Reader: React.FC<ReaderProps> = ({
     );
   }
 
-  const handleSelectToken = (
-    token: LocalToken
-  ) => {
-    if (token.isWordLike === false) return;
-
-    setSelectedWord(token as TokenDetails);
-  };
-
-  const handleAddCard = async () => {
-    if (!selectedWord || addingWord) {
-      return;
-    }
-
-    const word =
-      selectedWord.lemma ||
-      selectedWord.dictionaryForm ||
-      selectedWord.surface;
-
-    if (!word.trim()) {
-      return;
-    }
-
-    try {
-      setAddingWord(true);
-
-      const card = await addSRSCard({
-        word,
-        language: 'japanese',
-      });
-
-      setSavedWords((previous) => {
-        const next = new Set(previous);
-        next.add(card.word);
-        return next;
-      });
-
-    } catch (error) {
-      console.error(
-        'Failed to add word to SRS:',
-        error
-      );
-
-      window.alert(
-        'Could not add this word to SRS.'
-      );
-    } finally {
-      setAddingWord(false);
-    }
-  };
-
-
-  const goToChapter = (index: number) => {
-    setSelectedWord(null);
-    setActiveChapterIndex(index);
-  };
-
   return (
     <div className="relative min-h-[calc(100vh-5rem)] animate-slide-up">
       <header className="sticky top-0 z-30 -mx-8 lg:-mx-10 px-8 lg:px-10 border-b border-zinc-800/80 bg-zinc-950/90 backdrop-blur-xl">
@@ -201,7 +637,9 @@ export const Reader: React.FC<ReaderProps> = ({
             <Button
               variant="ghost"
               size="sm"
-              onClick={() => onNavigate('home')}
+              onClick={() =>
+                onNavigate('home')
+              }
             >
               <ArrowLeft size={15} />
               Library
@@ -222,8 +660,13 @@ export const Reader: React.FC<ReaderProps> = ({
 
           <div className="hidden sm:flex items-center gap-2">
             <Badge variant="gold">
-              {book.summary.mastery}% mastery
+              {mastery}% mastery
             </Badge>
+
+            <span className="text-[10px] text-zinc-600">
+              {knownWords}/
+              {totalWords}
+            </span>
 
             <button
               type="button"
@@ -237,6 +680,10 @@ export const Reader: React.FC<ReaderProps> = ({
       </header>
 
       <div className="grid grid-cols-1 lg:grid-cols-[230px_minmax(0,760px)_280px] gap-8 py-8">
+        {/* ====================================================
+            CHAPTERS
+            ==================================================== */}
+
         <aside className="hidden lg:block">
           <div className="sticky top-24">
             <div className="text-[10px] uppercase tracking-[0.18em] font-semibold text-zinc-600 px-2 mb-3">
@@ -244,90 +691,194 @@ export const Reader: React.FC<ReaderProps> = ({
             </div>
 
             <div className="space-y-1">
-              {book.chapters.map((chapter, index) => (
-                <button
-                  key={chapter.id}
-                  type="button"
-                  onClick={() => goToChapter(index)}
-                  className={[
-                    'w-full text-left px-3 py-2.5 rounded-lg text-xs transition-all',
-                    index === activeChapterIndex
-                      ? 'bg-amber-400/10 text-amber-300 border border-amber-400/20'
-                      : 'text-zinc-500 hover:text-zinc-200 hover:bg-zinc-900',
-                  ].join(' ')}
-                >
-                  <div className="font-medium">
-                    {chapter.title}
-                  </div>
+              {book.chapters.map(
+                (
+                  chapter,
+                  index,
+                ) => (
+                  <button
+                    key={
+                      chapter.id
+                    }
+                    type="button"
+                    onClick={() =>
+                      void goToChapter(
+                        index,
+                      )
+                    }
+                    className={[
+                      'w-full text-left px-3 py-2.5 rounded-lg text-xs transition-all',
+                      index ===
+                      activeChapterIndex
+                        ? 'bg-amber-400/10 text-amber-300 border border-amber-400/20'
+                        : 'text-zinc-500 hover:text-zinc-200 hover:bg-zinc-900',
+                    ].join(' ')}
+                  >
+                    <div className="font-medium">
+                      {
+                        chapter.title
+                      }
+                    </div>
 
-                  <div className="text-[10px] text-zinc-600 mt-1">
-                    {chapter.paragraphs.length} sections
-                  </div>
-                </button>
-              ))}
+                    <div className="text-[10px] text-zinc-600 mt-1">
+                      {
+                        chapter
+                          .paragraphs
+                          .length
+                      }{' '}
+                      sections
+                    </div>
+                  </button>
+                ),
+              )}
             </div>
           </div>
         </aside>
 
+        {/* ====================================================
+            READER
+            ==================================================== */}
+
         <main>
           <div className="mb-8">
             <div className="text-[10px] uppercase tracking-[0.2em] text-amber-400 font-semibold mb-3">
-              {activeChapterIndex + 1} / {book.chapters.length}
+              {activeChapterIndex +
+                1}{' '}
+              /{' '}
+              {
+                book.chapters
+                  .length
+              }
             </div>
 
             <h1 className="font-display text-4xl sm:text-5xl text-zinc-50">
-              {activeChapter.title}
+              {
+                activeChapter.title
+              }
             </h1>
+
+            <p className="text-xs text-zinc-600 mt-3">
+              Click a word for dictionary details.
+              Double-click a sentence to translate
+              only that sentence.
+            </p>
           </div>
 
           <article className="space-y-7 text-[18px] sm:text-[19px] leading-[2.15] text-zinc-200">
-            {activeChapter.paragraphs.map((paragraph) => (
-              <div
-                key={paragraph.id}
-                className="space-y-3"
-              >
-                {paragraph.sentences.map((sentence) => (
-                  <p key={sentence.id}>
-                    {sentence.tokens.map((token) => {
-                      if (token.isWordLike === false) {
-                        return (
-                          <React.Fragment key={token.id}>
-                            {token.surface}
-                          </React.Fragment>
-                        );
-                      }
+            {activeChapter.paragraphs.map(
+              (paragraph) => {
+                const firstSentence =
+                  paragraph
+                    .sentences[0];
 
-                      return (
-                        <button
-                          key={token.id}
-                          type="button"
-                          onClick={() =>
-                            handleSelectToken(token)
+                return (
+                  <div
+                    key={
+                      paragraph.id
+                    }
+                    ref={(element) => {
+                      paragraphRefs.current[
+                        paragraph.id
+                      ] = element;
+                    }}
+                    data-sentence-id={
+                      firstSentence?.id
+                    }
+                    data-chapter-id={
+                      activeChapter.id
+                    }
+                    className="space-y-3"
+                  >
+                    {paragraph.sentences.map(
+                      (
+                        sentence,
+                      ) => (
+                        <p
+                          key={sentence.id}
+                          id={`sentence-${sentence.id}`}
+                          onDoubleClick={() =>
+                            void handleDoubleClickSentence(
+                              sentence.id,
+                              sentence.tokens
+                                .map((token) => token.surface)
+                                .join(''),
+                            )
                           }
-                          className="rounded-md transition-colors duration-100 hover:bg-amber-400/10 hover:text-amber-300"
-                          title={
-                            token.lemma &&
-                            token.lemma !== token.surface
-                              ? `Dictionary form: ${token.lemma}`
-                              : undefined
-                          }
+                          className={[
+                            'cursor-default select-text rounded-lg px-2 -mx-2 transition-colors',
+                            selectedSentenceId === sentence.id
+                              ? 'bg-amber-400/10 text-amber-200'
+                              : 'hover:bg-zinc-900/60',
+                          ].join(' ')}
+                          title="Double-click to translate this sentence"
                         >
-                          {token.surface}
-                        </button>
-                      );
-                    })}
-                  </p>
-                ))}
-              </div>
-            ))}
+                          {sentence.tokens.map(
+                            (token) => {
+                              if (
+                                token.isWordLike ===
+                                false
+                              ) {
+                                return (
+                                  <React.Fragment
+                                    key={
+                                      token.id
+                                    }
+                                  >
+                                    {
+                                      token.surface
+                                    }
+                                  </React.Fragment>
+                                );
+                              }
+
+                              return (
+                                <button
+                                  key={
+                                    token.id
+                                  }
+                                  type="button"
+                                  onClick={() =>
+                                    handleSelectToken(
+                                      token,
+                                    )
+                                  }
+                                  className="rounded-md transition-colors duration-100 hover:bg-amber-400/10 hover:text-amber-300"
+                                  title={
+                                    token.lemma &&
+                                    token.lemma !==
+                                      token.surface
+                                      ? `Dictionary form: ${token.lemma}`
+                                      : undefined
+                                  }
+                                >
+                                  {
+                                    token.surface
+                                  }
+                                </button>
+                              );
+                            },
+                          )}
+                        </p>
+                      ),
+                    )}
+                  </div>
+                );
+              },
+            )}
           </article>
 
           <div className="mt-14 pt-6 border-t border-zinc-800/70 flex justify-between gap-4">
             <Button
               variant="secondary"
-              disabled={activeChapterIndex === 0}
+              disabled={
+                activeChapterIndex ===
+                0
+              }
               onClick={() =>
-                goToChapter(activeChapterIndex - 1)
+                void goToChapter(
+                  activeChapterIndex -
+                    1,
+                )
               }
             >
               <ChevronLeft size={15} />
@@ -337,10 +888,14 @@ export const Reader: React.FC<ReaderProps> = ({
             <Button
               disabled={
                 activeChapterIndex ===
-                book.chapters.length - 1
+                book.chapters.length -
+                  1
               }
               onClick={() =>
-                goToChapter(activeChapterIndex + 1)
+                void goToChapter(
+                  activeChapterIndex +
+                    1,
+                )
               }
             >
               Next Chapter
@@ -349,8 +904,78 @@ export const Reader: React.FC<ReaderProps> = ({
           </div>
         </main>
 
+        {/* ====================================================
+            RIGHT PANEL
+            ==================================================== */}
+
         <aside className="lg:block">
-          <div className="lg:sticky lg:top-24">
+          <div className="lg:sticky lg:top-24 space-y-4">
+            {selectedSentence && (
+              <div className="rounded-2xl border border-amber-400/20 bg-amber-400/[0.04] overflow-hidden">
+                <div className="p-4 border-b border-amber-400/10 flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2">
+                    <Sparkles
+                      size={14}
+                      className="text-amber-400"
+                    />
+
+                    <span className="text-xs font-semibold text-amber-300">
+                      Sentence translation
+                    </span>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedSentenceId(null);
+                      setSelectedSentence(null);
+                      setSentenceTranslation(null);
+                      setTranslationError(null);
+                    }}
+                    className="p-1 rounded text-zinc-600 hover:text-zinc-200 hover:bg-zinc-800"
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+
+                <div className="p-4 space-y-3">
+                  <p className="text-sm text-zinc-300 leading-relaxed">
+                    {
+                      selectedSentence
+                    }
+                  </p>
+
+                  {translatingSentence && (
+                    <div className="text-xs text-zinc-500">
+                      Translating…
+                    </div>
+                  )}
+
+                  {translationError && (
+                    <div className="text-xs text-red-300">
+                      {
+                        translationError
+                      }
+                    </div>
+                  )}
+
+                  {sentenceTranslation && (
+                    <div className="pt-3 border-t border-amber-400/10">
+                      <div className="text-[10px] uppercase tracking-[0.18em] text-amber-400/80 mb-2">
+                        Translation
+                      </div>
+
+                      <p className="text-sm text-zinc-100 leading-relaxed">
+                        {
+                          sentenceTranslation
+                        }
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
             {!selectedWord ? (
               <div className="rounded-2xl border border-zinc-800/70 bg-zinc-900/40 p-5">
                 <div className="w-10 h-10 rounded-xl bg-amber-400/10 border border-amber-400/20 text-amber-400 grid place-items-center mb-4">
@@ -362,8 +987,14 @@ export const Reader: React.FC<ReaderProps> = ({
                 </h3>
 
                 <p className="text-xs text-zinc-500 leading-relaxed mt-2">
-                  Click a Japanese word to see its dictionary
-                  form, reading, meaning, and learning status.
+                  Click a Japanese word to see its
+                  dictionary form, reading, meaning,
+                  and learning status.
+                </p>
+
+                <p className="text-xs text-zinc-600 leading-relaxed mt-3">
+                  Double-click a sentence to send only
+                  that sentence for translation.
                 </p>
               </div>
             ) : (
@@ -372,11 +1003,17 @@ export const Reader: React.FC<ReaderProps> = ({
                 isSaved={savedWords.has(
                   selectedWord.lemma ||
                     selectedWord.dictionaryForm ||
-                    selectedWord.surface
+                    selectedWord.surface,
                 )}
                 adding={addingWord}
-                onAdd={handleAddCard}
-                onClose={() => setSelectedWord(null)}
+                onAdd={
+                  handleAddCard
+                }
+                onClose={() =>
+                  setSelectedWord(
+                    null,
+                  )
+                }
               />
             )}
           </div>
@@ -386,6 +1023,10 @@ export const Reader: React.FC<ReaderProps> = ({
   );
 };
 
+/* ==============================================================
+   WORD PANEL
+   ============================================================== */
+
 interface WordPanelProps {
   token: TokenDetails;
   isSaved: boolean;
@@ -393,7 +1034,10 @@ interface WordPanelProps {
   onAdd: () => void;
   onClose: () => void;
 }
-const WordPanel: React.FC<WordPanelProps> = ({
+
+const WordPanel: React.FC<
+  WordPanelProps
+> = ({
   token,
   isSaved,
   adding,
@@ -406,16 +1050,21 @@ const WordPanel: React.FC<WordPanelProps> = ({
     token.surface;
 
   const [entries, setEntries] =
-    useState<DictionaryEntry[]>([]);
+    useState<DictionaryEntry[]>(
+      [],
+    );
 
   const [loading, setLoading] =
     useState(true);
 
   const [error, setError] =
-    useState<string | null>(null);
+    useState<string | null>(
+      null,
+    );
 
   useEffect(() => {
-    const controller = new AbortController();
+    const controller =
+      new AbortController();
 
     let cancelled = false;
 
@@ -425,7 +1074,7 @@ const WordPanel: React.FC<WordPanelProps> = ({
 
     lookupJapanese(
       lemma,
-      controller.signal
+      controller.signal,
     )
       .then((result) => {
         if (!cancelled) {
@@ -443,7 +1092,7 @@ const WordPanel: React.FC<WordPanelProps> = ({
         setError(
           reason instanceof Error
             ? reason.message
-            : 'Dictionary lookup failed.'
+            : 'Dictionary lookup failed.',
         );
       })
       .finally(() => {
@@ -521,56 +1170,80 @@ const WordPanel: React.FC<WordPanelProps> = ({
           entries.length === 0 && (
             <div className="text-xs text-zinc-500">
               No dictionary entry found for{' '}
-              <strong>{lemma}</strong>.
+              <strong>
+                {lemma}
+              </strong>
+              .
             </div>
           )}
 
-        {entries.map((entry, entryIndex) => (
-          <div
-            key={`${entry.word}-${entryIndex}`}
-            className="space-y-3"
-          >
-            <div className="flex items-baseline justify-between gap-3">
-              <strong className="text-sm text-zinc-100">
-                {entry.word}
-              </strong>
+        {entries.map(
+          (
+            entry,
+            entryIndex,
+          ) => (
+            <div
+              key={`${entry.word}-${entryIndex}`}
+              className="space-y-3"
+            >
+              <div className="flex items-baseline justify-between gap-3">
+                <strong className="text-sm text-zinc-100">
+                  {entry.word}
+                </strong>
 
-              {entry.reading && (
-                <span className="text-xs text-amber-400">
-                  {entry.reading}
-                </span>
+                {entry.reading && (
+                  <span className="text-xs text-amber-400">
+                    {
+                      entry.reading
+                    }
+                  </span>
+                )}
+              </div>
+
+              {entry.senses.map(
+                (
+                  sense,
+                  senseIndex,
+                ) => (
+                  <div
+                    key={
+                      senseIndex
+                    }
+                  >
+                    {sense.partsOfSpeech
+                      .length >
+                      0 && (
+                      <div className="text-[10px] text-zinc-600 mb-1">
+                        {sense.partsOfSpeech.join(
+                          ', ',
+                        )}
+                      </div>
+                    )}
+
+                    <ol className="list-decimal list-inside space-y-1 text-sm text-zinc-300">
+                      {sense.englishDefinitions.map(
+                        (
+                          definition,
+                          definitionIndex,
+                        ) => (
+                          <li
+                            key={
+                              definitionIndex
+                            }
+                          >
+                            {
+                              definition
+                            }
+                          </li>
+                        ),
+                      )}
+                    </ol>
+                  </div>
+                ),
               )}
             </div>
-
-            {entry.senses.map(
-              (sense, senseIndex) => (
-                <div key={senseIndex}>
-                  {sense.partsOfSpeech.length >
-                    0 && (
-                    <div className="text-[10px] text-zinc-600 mb-1">
-                      {sense.partsOfSpeech.join(', ')}
-                    </div>
-                  )}
-
-                  <ol className="list-decimal list-inside space-y-1 text-sm text-zinc-300">
-                    {sense.englishDefinitions.map(
-                      (
-                        definition,
-                        definitionIndex
-                      ) => (
-                        <li
-                          key={definitionIndex}
-                        >
-                          {definition}
-                        </li>
-                      )
-                    )}
-                  </ol>
-                </div>
-              )
-            )}
-          </div>
-        ))}
+          ),
+        )}
 
         <div className="flex items-center gap-2">
           <Badge variant="muted">
@@ -591,14 +1264,15 @@ const WordPanel: React.FC<WordPanelProps> = ({
             className="flex items-center justify-center gap-2 py-2.5 rounded-lg border border-zinc-800 bg-zinc-950 text-zinc-400 hover:text-zinc-100 hover:border-zinc-700 text-xs"
             onClick={() => {
               if (
-                'speechSynthesis' in window
+                'speechSynthesis' in
+                window
               ) {
                 window.speechSynthesis.cancel();
 
                 window.speechSynthesis.speak(
                   new SpeechSynthesisUtterance(
-                    token.surface
-                  )
+                    token.surface,
+                  ),
                 );
               }
             }}
@@ -610,10 +1284,7 @@ const WordPanel: React.FC<WordPanelProps> = ({
           <button
             type="button"
             className="flex items-center justify-center gap-2 py-2.5 rounded-lg border border-zinc-800 bg-zinc-950 text-zinc-400 hover:text-zinc-100 hover:border-zinc-700 text-xs"
-            onClick={() => {
-              // AI explanation belongs in the backend later.
-              // Keep the reader fully local for dictionary lookup now.
-            }}
+            title="Double-click a sentence to translate it"
           >
             <Sparkles size={14} />
             Explain
@@ -621,32 +1292,34 @@ const WordPanel: React.FC<WordPanelProps> = ({
         </div>
 
         {!isSaved ? (
-        <Button
-          fullWidth
-          onClick={onAdd}
-          disabled={adding}
-        >
-          {adding ? (
-            <>
-              <span className="animate-spin">◌</span>
-              Adding…
-            </>
-          ) : (
-            <>
-              <Plus size={15} />
-              Add to SRS
-            </>
-          )}
-        </Button>
-      ) : (
-        <Button
-          variant="secondary"
-          fullWidth
-        >
-          <BookOpen size={14} />
-          View Card
-        </Button>
-      )}
+          <Button
+            fullWidth
+            onClick={onAdd}
+            disabled={adding}
+          >
+            {adding ? (
+              <>
+                <span className="animate-spin">
+                  ◌
+                </span>
+                Adding…
+              </>
+            ) : (
+              <>
+                <Plus size={15} />
+                Add to SRS
+              </>
+            )}
+          </Button>
+        ) : (
+          <Button
+            variant="secondary"
+            fullWidth
+          >
+            <BookOpen size={14} />
+            View Card
+          </Button>
+        )}
 
         <div className="pt-4 border-t border-zinc-800/70 flex items-center justify-between text-[10px] text-zinc-600">
           <span>

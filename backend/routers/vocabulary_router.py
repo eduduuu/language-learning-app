@@ -1,15 +1,20 @@
-from typing import List
+from typing import List, Union
 
 from fastapi import APIRouter, Header
 
 from schemas.vocabulary import (
-    VocabGenerateRequest,
-    VocabCardResponse,
+    EnrichBookSentenceRequest,
+    EnrichBookSentenceResponse,
+    SRSCardCreateRequest,
+    SRSCardListItem,
+    SRSCardResponse,
     SRSReviewRequest,
     SRSReviewResponse,
-    SRSCardCreateRequest,
-    SRSCardResponse,
-    SRSCardListItem,
+    TranslateSentenceRequest,
+    TranslateSentenceResponse,
+    VocabBookContextResponse,
+    VocabCardResponse,
+    VocabGenerateRequest,
 )
 
 from services.srs_service import SRSService
@@ -30,7 +35,10 @@ srs_service = SRSService()
 
 @router.post(
     "/generate",
-    response_model=VocabCardResponse
+    response_model=Union[
+        VocabCardResponse,
+        VocabBookContextResponse
+    ]
 )
 async def generate_vocab_card(
     req: VocabGenerateRequest,
@@ -42,6 +50,50 @@ async def generate_vocab_card(
     return await srs_service.generate_vocab_card(
         x_user_id,
         req
+    )
+
+
+# ============================================================
+# Enrich a sentence from a local EPUB
+# ============================================================
+
+@router.post(
+    "/enrich-book-sentence",
+    response_model=EnrichBookSentenceResponse
+)
+async def enrich_book_sentence(
+    req: EnrichBookSentenceRequest,
+    x_user_id: str = Header(
+        ...,
+        description="Supabase User UUID"
+    )
+):
+    return await srs_service.enrich_book_sentence(
+        user_id=x_user_id,
+        sentence=req.sentence,
+        words=req.words
+    )
+
+
+# ============================================================
+# Translate a sentence from the reader
+# ============================================================
+
+@router.post(
+    "/translate-sentence",
+    response_model=TranslateSentenceResponse
+)
+async def translate_sentence(
+    req: TranslateSentenceRequest,
+    x_user_id: str = Header(
+        ...,
+        description="Supabase User UUID"
+    )
+):
+    return await srs_service.translate_sentence(
+        user_id=x_user_id,
+        sentence=req.sentence,
+        language=req.language
     )
 
 
@@ -60,7 +112,6 @@ async def add_card_to_srs(
         description="Supabase User UUID"
     )
 ):
-
     card = srs_service.add_card(
         user_id=x_user_id,
         word=req.word,
@@ -95,7 +146,6 @@ async def get_srs_cards(
         description="Supabase User UUID"
     )
 ):
-
     cards = SRSRepository.get_all_cards(
         user_id=x_user_id,
         language=language
@@ -132,7 +182,6 @@ async def review_card(
         description="Supabase User UUID"
     )
 ):
-
     card_data = srs_service.process_review(
         user_id=x_user_id,
         word=req.word,
@@ -148,4 +197,23 @@ async def review_card(
         stability=card_data.get("stability", 0.0),
         reps=card_data.get("reps", 0),
         lapses=card_data.get("lapses", 0)
+    )
+
+
+# ============================================================
+# Book mastery
+# ============================================================
+
+@router.get(
+    "/books/{book_id}/mastery"
+)
+async def get_book_mastery(
+    book_id: str,
+    language: str = "japanese",
+    x_user_id: str = Header(...)
+):
+    return srs_service.get_book_mastery(
+        user_id=x_user_id,
+        book_id=book_id,
+        language=language
     )
