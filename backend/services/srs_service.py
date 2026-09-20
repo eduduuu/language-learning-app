@@ -477,31 +477,35 @@ class SRSService:
             Rating.Good
         )
 
+        now = datetime.now(timezone.utc)
+
         if existing_card:
+            raw_state = existing_card.get("state")
+            if raw_state in (None, 0):
+                card_state = State.Learning
+            else:
+                try:
+                    card_state = State(int(raw_state))
+                except (ValueError, TypeError):
+                    card_state = State.Learning
+
+            raw_diff = existing_card.get("difficulty")
+            difficulty = float(raw_diff) if (raw_diff is not None and float(raw_diff) > 0.0) else None
+
+            raw_stab = existing_card.get("stability")
+            stability = float(raw_stab) if (raw_stab is not None and float(raw_stab) > 0.0) else None
+
+            due_str = existing_card.get("next_review_date")
+            try:
+                due = datetime.fromisoformat(due_str.replace("Z", "+00:00")) if due_str else now
+            except Exception:
+                due = now
 
             card = Card(
-                state=State(
-                    existing_card.get(
-                        "state",
-                        0
-                    )
-                ),
-                difficulty=existing_card.get(
-                    "difficulty",
-                    0.0
-                ),
-                stability=existing_card.get(
-                    "stability",
-                    0.0
-                ),
-                due=datetime.fromisoformat(
-                    existing_card.get(
-                        "next_review_date"
-                    ).replace(
-                        "Z",
-                        "+00:00"
-                    )
-                )
+                state=card_state,
+                difficulty=difficulty,
+                stability=stability,
+                due=due,
             )
 
             current_reps = existing_card.get(
@@ -521,9 +525,8 @@ class SRSService:
             current_reps = 0
             current_lapses = 0
 
-        now = datetime.now(timezone.utc)
-
         scheduled_card, review_log = (
+
             self.fsrs.review_card(
                 card,
                 fsrs_rating,
