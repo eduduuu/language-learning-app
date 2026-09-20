@@ -1,10 +1,18 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
+  BarChart3,
   Book,
+  BookCheck,
   BookOpen,
+  Calendar,
   CheckCircle2,
   Clock,
+  Download,
   Flame,
+  Hash,
+  Info,
+  Layers,
+  MoreVertical,
   Plus,
   Search,
   Sparkles,
@@ -14,13 +22,31 @@ import {
 } from 'lucide-react';
 
 import { Badge, Button, Card, Input, PageHeader, Segmented } from '../components/ui';
+import { api, getSRSCards } from '../lib/api';
+import {
+  analyzeBookVocabulary,
+  BookGrammarProfile,
+  BookVocabularyProfile,
+  scanBookGrammar,
+} from '../lib/grammar/scanner';
+import { CardManagerModal } from '../components/srs/CardManagerModal';
+import { exportBookToAnkiDeck } from '../lib/anki/book_deck';
 import {
   createLocalBookFromEpub,
   deleteLocalBook,
+  getLocalBook,
   listLocalBooks,
   updateLocalBookStatus,
 } from '../lib/localBookStore';
-import type { BookLanguage, BookStatus, BookSummary } from '../types/book';
+import type { BookLanguage, BookStatus, BookSummary, LocalBook } from '../types/book';
+
+interface AnalyticsData {
+  total_books: number;
+  total_cards: number;
+  cards_due_today: number;
+  words_mastered: number;
+  current_streak: number;
+}
 
 interface HomeDashboardProps {
   onNavigate?: (tab: string, params?: { bookId?: string }) => void;
@@ -28,6 +54,7 @@ interface HomeDashboardProps {
 
 export const HomeDashboard: React.FC<HomeDashboardProps> = ({ onNavigate }) => {
   const [books, setBooks] = useState<BookSummary[]>([]);
+  const [analytics, setAnalytics] = useState<AnalyticsData | null>(null);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | BookStatus>('all');
 
@@ -38,6 +65,39 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({ onNavigate }) => {
   const [importProgress, setImportProgress] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
   const [loading, setLoading] = useState(true);
+
+  const [aboutBookId, setAboutBookId] = useState<string | null>(null);
+  const [aboutBookData, setAboutBookData] = useState<{
+    book: LocalBook;
+    vocabProfile: BookVocabularyProfile;
+    grammarProfile: BookGrammarProfile;
+  } | null>(null);
+  const [aboutLoading, setAboutLoading] = useState(false);
+  const [knownWordsSet, setKnownWordsSet] = useState<Set<string>>(new Set());
+
+  const [showCardManager, setShowCardManager] = useState(false);
+  const [cardManagerBookId, setCardManagerBookId] = useState<string | undefined>(undefined);
+  const [exportingDeck, setExportingDeck] = useState(false);
+  const [exportProgressText, setExportProgressText] = useState<string | null>(null);
+
+  const handleExportBookDeck = async (book: LocalBook) => {
+    setExportingDeck(true);
+    setExportProgressText('Preparing deck…');
+    try {
+      await exportBookToAnkiDeck({
+        book,
+        maxCards: 1000,
+        onProgress: (_curr, _tot, msg) => {
+          setExportProgressText(msg);
+        },
+      });
+    } catch (err) {
+      alert((err as Error).message || 'Failed to export deck.');
+    } finally {
+      setExportingDeck(false);
+      setExportProgressText(null);
+    }
+  };
 
   const refreshBooks = async () => {
     setLoading(true);
@@ -52,7 +112,43 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({ onNavigate }) => {
 
   useEffect(() => {
     void refreshBooks();
+
+    api.get<AnalyticsData>('/analytics/overview')
+      .then((res) => setAnalytics(res.data))
+      .catch((err) => console.warn('Could not load analytics overview:', err));
+
+    getSRSCards('japanese')
+      .then((cards) => {
+        const set = new Set(cards.map((c) => c.word));
+        setKnownWordsSet(set);
+      })
+      .catch((err) => console.warn('Could not load SRS cards for vocab matching:', err));
   }, []);
+
+  const handleOpenAbout = async (bookId: string, event?: React.MouseEvent) => {
+    if (event) event.stopPropagation();
+    setAboutBookId(bookId);
+    setAboutLoading(true);
+    try {
+      const fullBook = await getLocalBook(bookId);
+      if (!fullBook) {
+        setAboutBookId(null);
+        return;
+      }
+      const vocabProfile = analyzeBookVocabulary(fullBook, knownWordsSet);
+      const grammarProfile = scanBookGrammar(fullBook);
+      setAboutBookData({ book: fullBook, vocabProfile, grammarProfile });
+    } catch (error) {
+      console.error('Failed to load book about details:', error);
+    } finally {
+      setAboutLoading(false);
+    }
+  };
+
+  const closeAboutModal = () => {
+    setAboutBookId(null);
+    setAboutBookData(null);
+  };
 
   const activeBook =
     books.find((book) => book.status === 'learning') ?? books[0];
@@ -171,9 +267,21 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({ onNavigate }) => {
       />
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <StatCard icon={<Flame size={19} />} label="Reading Streak" value="12 days" />
-        <StatCard icon={<BookOpen size={19} />} label="Words Mastered" value="1,420" />
-        <StatCard icon={<Clock size={19} />} label="Reviews Due" value="24" />
+        <StatCard
+          icon={<Flame size={19} />}
+          label="Reading Streak"
+          value={`${analytics?.current_streak ?? 0} ${analytics?.current_streak === 1 ? 'day' : 'days'}`}
+        />
+        <StatCard
+          icon={<BookOpen size={19} />}
+          label="Words Mastered"
+          value={(analytics?.words_mastered ?? 0).toLocaleString()}
+        />
+        <StatCard
+          icon={<Clock size={19} />}
+          label="Reviews Due"
+          value={`${analytics?.cards_due_today ?? 0}`}
+        />
         <StatCard
           icon={<Book size={19} />}
           label="Active Books"
@@ -188,7 +296,15 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({ onNavigate }) => {
           <div className="relative p-6 md:p-8 flex flex-col md:flex-row md:items-center justify-between gap-6">
             <div className="flex items-center gap-5">
               <div className="w-20 h-28 rounded-lg overflow-hidden border border-zinc-700/70 bg-zinc-950 flex items-center justify-center shrink-0">
-                <Book size={28} className="text-amber-400/40" />
+                {activeBook.coverUrl ? (
+                  <img
+                    src={activeBook.coverUrl}
+                    alt={activeBook.title}
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  <Book size={28} className="text-amber-400/40" />
+                )}
               </div>
 
               <div>
@@ -219,15 +335,25 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({ onNavigate }) => {
               </div>
             </div>
 
-            <Button
-              size="lg"
-              onClick={() =>
-                onNavigate?.('reader', { bookId: activeBook.id })
-              }
-            >
-              <BookOpen size={16} />
-              Continue Reading
-            </Button>
+            <div className="flex flex-wrap items-center gap-3">
+              <Button
+                variant="secondary"
+                size="lg"
+                onClick={() => void handleOpenAbout(activeBook.id)}
+              >
+                <Info size={16} />
+                About Book
+              </Button>
+              <Button
+                size="lg"
+                onClick={() =>
+                  onNavigate?.('reader', { bookId: activeBook.id })
+                }
+              >
+                <BookOpen size={16} />
+                Continue Reading
+              </Button>
+            </div>
           </div>
         </Card>
       )}
@@ -235,7 +361,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({ onNavigate }) => {
       <div className="grid md:grid-cols-3 gap-4">
         <PracticeCard
           label="Daily Review"
-          title="24 cards due"
+          title={`${analytics?.cards_due_today ?? 0} cards due`}
           description="Review vocabulary from your books."
           icon={<Sparkles size={17} />}
           action="Start Review"
@@ -326,6 +452,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({ onNavigate }) => {
                 onStatusChange={(status) =>
                   handleStatusChange(book.id, status)
                 }
+                onAbout={(event) => void handleOpenAbout(book.id, event)}
               />
             ))}
           </div>
@@ -444,6 +571,297 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({ onNavigate }) => {
           </div>
         </div>
       )}
+
+      {aboutBookId !== null && (
+        <div className="fixed inset-0 z-50 bg-zinc-950/80 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
+          <div className="w-full max-w-2xl bg-zinc-950 border border-zinc-800 rounded-2xl p-6 md:p-8 space-y-6 shadow-2xl relative my-8 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-start justify-between border-b border-zinc-800 pb-4">
+              <div className="flex items-center gap-4">
+                <div className="w-14 h-20 rounded-lg overflow-hidden border border-zinc-800 bg-zinc-900 flex items-center justify-center shrink-0">
+                  {aboutBookData?.book.summary.coverUrl ? (
+                    <img
+                      src={aboutBookData.book.summary.coverUrl}
+                      alt={aboutBookData.book.summary.title}
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <Book size={24} className="text-amber-400/40" />
+                  )}
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <Badge variant="gold">
+                      {aboutBookData?.book.summary.language === 'japanese' ? '🇯🇵 Japanese' : '🇺🇸 English'}
+                    </Badge>
+                    <Badge variant="muted">
+                      {aboutBookData?.book.summary.status === 'learning'
+                        ? 'Learning'
+                        : aboutBookData?.book.summary.status === 'on_hold'
+                        ? 'On Hold'
+                        : 'Completed'}
+                    </Badge>
+                  </div>
+                  <h2 className="font-display text-2xl text-zinc-100 mt-1.5 line-clamp-1">
+                    {aboutBookData?.book.summary.title ?? 'Book Details'}
+                  </h2>
+                  <div className="flex flex-wrap items-center gap-3 text-xs text-zinc-500 mt-1">
+                    <span className="flex items-center gap-1">
+                      <Calendar size={12} />
+                      Added: {aboutBookData?.book.summary.createdAt ? new Date(aboutBookData.book.summary.createdAt).toLocaleDateString() : 'Recently'}
+                    </span>
+                    <span>•</span>
+                    <span className="flex items-center gap-1">
+                      <Clock size={12} />
+                      Last opened: {aboutBookData?.book.summary.lastOpenedAt ? new Date(aboutBookData.book.summary.lastOpenedAt).toLocaleDateString() : 'Never'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={closeAboutModal}
+                className="p-2 rounded-lg text-zinc-500 hover:text-zinc-100 hover:bg-zinc-900 transition-colors"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {aboutLoading ? (
+              <div className="py-16 flex flex-col items-center justify-center space-y-3">
+                <div className="w-8 h-8 border-2 border-amber-400/30 border-t-amber-400 rounded-full animate-spin" />
+                <p className="text-xs text-zinc-400">Analyzing book vocabulary & grammar complexity…</p>
+              </div>
+            ) : aboutBookData ? (
+              <div className="space-y-6">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  <div className="p-3.5 rounded-xl bg-zinc-900/60 border border-zinc-800/80">
+                    <div className="text-[10px] uppercase font-semibold tracking-wider text-zinc-500">
+                      Total Words
+                    </div>
+                    <div className="text-lg font-bold text-zinc-100 mt-1">
+                      {aboutBookData.vocabProfile.totalWords.toLocaleString()}
+                    </div>
+                    <div className="text-[10px] text-zinc-600 mt-0.5">Tokens parsed</div>
+                  </div>
+
+                  <div className="p-3.5 rounded-xl bg-zinc-900/60 border border-zinc-800/80">
+                    <div className="text-[10px] uppercase font-semibold tracking-wider text-zinc-500">
+                      Unique Words
+                    </div>
+                    <div className="text-lg font-bold text-zinc-100 mt-1">
+                      {aboutBookData.vocabProfile.uniqueWords.toLocaleString()}
+                    </div>
+                    <div className="text-[10px] text-zinc-600 mt-0.5">Distinct lemmas</div>
+                  </div>
+
+                  <div className="p-3.5 rounded-xl bg-zinc-900/60 border border-zinc-800/80">
+                    <div className="text-[10px] uppercase font-semibold tracking-wider text-zinc-500">
+                      Known Vocab
+                    </div>
+                    <div className="text-lg font-bold text-emerald-400 mt-1">
+                      {aboutBookData.vocabProfile.knownWords.toLocaleString()}
+                    </div>
+                    <div className="text-[10px] text-zinc-600 mt-0.5">
+                      {aboutBookData.vocabProfile.knownPercentage}% coverage
+                    </div>
+                  </div>
+
+                  <div className="p-3.5 rounded-xl bg-zinc-900/60 border border-zinc-800/80">
+                    <div className="text-[10px] uppercase font-semibold tracking-wider text-zinc-500">
+                      Mastery
+                    </div>
+                    <div className="text-lg font-bold text-amber-400 mt-1">
+                      {aboutBookData.book.summary.mastery}%
+                    </div>
+                    <div className="text-[10px] text-zinc-600 mt-0.5">Reading progress</div>
+                  </div>
+                </div>
+
+                <div className="p-4 rounded-xl bg-zinc-900/40 border border-zinc-800 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <BarChart3 size={16} className="text-amber-400" />
+                      <h4 className="text-sm font-semibold text-zinc-100">
+                        {aboutBookData.book.summary.language === 'japanese'
+                          ? 'Vocabulary & Kanji Complexity'
+                          : 'Vocabulary & Lexical Complexity'}
+                      </h4>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Badge variant="gold">
+                        {aboutBookData.vocabProfile.levelLabel}
+                      </Badge>
+                      <span className="text-sm font-bold text-amber-400">
+                        {aboutBookData.vocabProfile.score.toFixed(1)} / 10
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="text-xs text-zinc-400 flex items-center justify-between">
+                    <span>
+                      {aboutBookData.vocabProfile.details.unitName === 'kanji' ? (
+                        <>
+                          Contains <strong className="text-zinc-200">{aboutBookData.vocabProfile.details.uniqueUnits.toLocaleString()}</strong> unique kanji ({aboutBookData.vocabProfile.details.totalUnits.toLocaleString()} total occurrences)
+                        </>
+                      ) : (
+                        <>
+                          Contains <strong className="text-zinc-200">{aboutBookData.vocabProfile.uniqueWords.toLocaleString()}</strong> unique words ({aboutBookData.vocabProfile.totalWords.toLocaleString()} total words)
+                        </>
+                      )}
+                    </span>
+                  </div>
+
+                  {/* Modular Stacked Progress Bar */}
+                  <div className="space-y-2">
+                    <div className="h-3 w-full rounded-full bg-zinc-950 overflow-hidden flex">
+                      {aboutBookData.vocabProfile.distribution.map((tier) =>
+                        tier.percent > 0 ? (
+                          <div
+                            key={tier.id}
+                            className={`h-full ${tier.bgClass}`}
+                            style={{ width: `${tier.percent}%` }}
+                            title={`${tier.shortLabel}: ${tier.percent}%`}
+                          />
+                        ) : null
+                      )}
+                    </div>
+
+                    {/* Modular Breakdown Legend */}
+                    <div
+                      className={`grid gap-2 text-center text-[10px] pt-1 ${
+                        aboutBookData.vocabProfile.distribution.length === 6
+                          ? 'grid-cols-3 sm:grid-cols-6'
+                          : 'grid-cols-5'
+                      }`}
+                    >
+                      {aboutBookData.vocabProfile.distribution.map((tier) => (
+                        <div
+                          key={tier.id}
+                          className={`rounded-lg ${tier.badgeBgClass} border ${tier.borderClass} py-1.5 px-1`}
+                        >
+                          <div className={`font-semibold ${tier.textClass}`}>
+                            {tier.label}
+                          </div>
+                          <div className="text-zinc-300 font-mono mt-0.5">
+                            {tier.count} ({tier.percent}%)
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <p className="text-[11px] text-zinc-500 leading-relaxed bg-zinc-950/50 p-2.5 rounded-lg border border-zinc-800/60">
+                    💡 <strong>Complexity Note:</strong> {aboutBookData.vocabProfile.details.notes || 'Analyzed against standard frequency and linguistic benchmarks.'}
+                  </p>
+                </div>
+
+                <div className="p-4 rounded-xl bg-zinc-900/40 border border-zinc-800 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Layers size={16} className="text-amber-400" />
+                      <h4 className="text-sm font-semibold text-zinc-100">
+                        Grammar Profile
+                      </h4>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Badge variant="gold">
+                        {aboutBookData.grammarProfile.levelLabel}
+                      </Badge>
+                      <span className="text-sm font-bold text-amber-400">
+                        {aboutBookData.grammarProfile.difficultyScore.toFixed(1)} / 10
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="text-xs text-zinc-400">
+                    Scanned {aboutBookData.grammarProfile.totalScannedSentences.toLocaleString()} sentences for discriminating JLPT grammar patterns.
+                  </div>
+
+                  {aboutBookData.grammarProfile.detectedPatterns.length > 0 ? (
+                    <div>
+                      <div className="text-[10px] uppercase font-semibold tracking-wider text-zinc-500 mb-2">
+                        Top Detected Grammar Patterns
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {aboutBookData.grammarProfile.detectedPatterns.slice(0, 8).map((p) => (
+                          <div
+                            key={p.patternId}
+                            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-zinc-950 border border-zinc-800 text-xs text-zinc-300"
+                          >
+                            <span className="text-[10px] font-bold text-amber-400/80 uppercase">
+                              {p.level}
+                            </span>
+                            <span>{p.name}</span>
+                            <span className="text-[10px] text-zinc-500 font-mono">
+                              ({p.count}×)
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="text-xs text-zinc-500">No advanced grammar patterns detected yet.</p>
+                  )}
+                </div>
+
+                <div className="pt-4 border-t border-zinc-800/80 flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => {
+                        setCardManagerBookId(aboutBookData.book.summary.id);
+                        setShowCardManager(true);
+                      }}
+                    >
+                      <Layers size={14} />
+                      View Book Cards
+                    </Button>
+
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      disabled={exportingDeck}
+                      loading={exportingDeck}
+                      onClick={() => void handleExportBookDeck(aboutBookData.book)}
+                    >
+                      <Download size={14} />
+                      {exportingDeck ? exportProgressText || 'Exporting…' : 'Export Anki Deck'}
+                    </Button>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <Button variant="secondary" size="sm" onClick={closeAboutModal}>
+                      Close
+                    </Button>
+                    <Button
+                      size="sm"
+                      onClick={() => {
+                        const id = aboutBookData.book.summary.id;
+                        closeAboutModal();
+                        onNavigate?.('reader', { bookId: id });
+                      }}
+                    >
+                      <BookOpen size={14} />
+                      Resume Reading
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            ) : null}
+          </div>
+        </div>
+      )}
+
+      <CardManagerModal
+        isOpen={showCardManager}
+        onClose={() => {
+          setShowCardManager(false);
+          setCardManagerBookId(undefined);
+        }}
+        initialBookId={cardManagerBookId}
+      />
     </div>
   );
 };
@@ -506,7 +924,8 @@ const BookCard: React.FC<{
   onOpen: () => void;
   onDelete: (event: React.MouseEvent) => void;
   onStatusChange: (status: BookStatus) => void;
-}> = ({ book, onOpen, onDelete, onStatusChange }) => {
+  onAbout: (event: React.MouseEvent) => void;
+}> = ({ book, onOpen, onDelete, onStatusChange, onAbout }) => {
   const [statusOpen, setStatusOpen] = useState(false);
 
   return (
@@ -525,14 +944,27 @@ const BookCard: React.FC<{
           <Book size={36} className="text-amber-400/25" />
         )}
 
-        <button
-          type="button"
-          onClick={onDelete}
-          className="absolute top-2 right-2 p-1.5 rounded-md bg-zinc-950/80 text-zinc-500 hover:text-rose-300 opacity-0 group-hover:opacity-100 transition-all"
-          title="Remove book"
-        >
-          <Trash2 size={13} />
-        </button>
+        <div className="absolute top-2 right-2 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all z-10">
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              onAbout(event);
+            }}
+            className="p-1.5 rounded-md bg-zinc-950/80 text-zinc-400 hover:text-amber-400 transition-all"
+            title="About this book"
+          >
+            <MoreVertical size={13} />
+          </button>
+          <button
+            type="button"
+            onClick={onDelete}
+            className="p-1.5 rounded-md bg-zinc-950/80 text-zinc-500 hover:text-rose-300 transition-all"
+            title="Remove book"
+          >
+            <Trash2 size={13} />
+          </button>
+        </div>
 
         <div className="absolute bottom-2 left-2">
           <Badge variant="gold">
@@ -542,12 +974,25 @@ const BookCard: React.FC<{
       </div>
 
       <div className="p-3.5">
-        <h3
-          className="text-xs font-semibold text-zinc-100 truncate"
-          title={book.title}
-        >
-          {book.title}
-        </h3>
+        <div className="flex items-start justify-between gap-1">
+          <h3
+            className="text-xs font-semibold text-zinc-100 truncate flex-1"
+            title={book.title}
+          >
+            {book.title}
+          </h3>
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              onAbout(event);
+            }}
+            className="text-zinc-500 hover:text-amber-400 transition-colors p-0.5 shrink-0"
+            title="About this book"
+          >
+            <MoreVertical size={13} />
+          </button>
+        </div>
 
         <div
           className="relative mt-2"

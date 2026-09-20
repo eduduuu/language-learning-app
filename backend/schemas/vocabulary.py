@@ -167,3 +167,57 @@ class SRSCardListItem(BaseModel):
     lapses: int
     next_review_date: datetime
     last_reviewed: Optional[datetime] = None
+
+
+class WordLookupRequest(BaseModel):
+    word: str
+    language: str = "japanese"
+
+
+class WordLookupResponse(BaseModel):
+    word: str
+    lookup_count: int
+
+
+# ============================================================
+# Card management & Anki import/export
+# ============================================================
+
+class SRSCardUpdateRequest(BaseModel):
+    state: Optional[int] = None
+    next_review_date: Optional[datetime] = None
+    reps: Optional[int] = None
+    stability: Optional[float] = None
+    difficulty: Optional[float] = None
+    lapses: Optional[int] = None
+
+
+class SRSCardBulkActionRequest(BaseModel):
+    words: List[str]
+    language: str = "japanese"
+    action: Literal["mark_new", "mark_mastered", "reschedule", "delete"]
+    target_date: Optional[datetime] = None
+
+
+class AnkiCardImportItem(BaseModel):
+    word: str
+    reading: Optional[str] = None
+    meaning: Optional[str] = None
+    sentence: Optional[str] = None
+    state: Optional[int] = None
+    difficulty: Optional[float] = None
+    stability: Optional[float] = None
+    reps: Optional[int] = None
+    lapses: Optional[int] = None
+    next_review_date: Optional[datetime] = None
+
+
+class AnkiImportRequest(BaseModel):
+    cards: List[AnkiCardImportItem]
+    language: str = "japanese"
+    import_progress: bool = False
+
+
+class AnkiImportResponse(BaseModel):
+    imported_count: int
+    total_cards: int

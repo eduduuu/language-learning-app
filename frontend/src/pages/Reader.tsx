@@ -28,6 +28,7 @@ import {
 import {
   calculateLocalBookMastery,
   getLocalBook,
+  recordWordLookup,
   touchLocalBook,
   updateLocalBookPosition,
 } from '../lib/localBookStore';
@@ -45,7 +46,9 @@ import type {
 import {
   addSRSCard,
   getSRSCards,
+  recordWordLookupApi,
   translateSentence,
+  type SRSCard,
 } from '../lib/api';
 
 interface ReaderProps {
@@ -60,6 +63,15 @@ interface ReaderProps {
 interface TokenDetails extends LocalToken {
   reading?: string;
   partOfSpeech?: string;
+}
+
+export type FuriganaMode = 'all' | 'unknown_only' | 'none';
+
+function katakanaToHiragana(str?: string): string | undefined {
+  if (!str) return undefined;
+  return str.replace(/[\u30a1-\u30f6]/g, (match) =>
+    String.fromCharCode(match.charCodeAt(0) - 0x60)
+  );
 }
 
 export const Reader: React.FC<ReaderProps> = ({
@@ -77,6 +89,18 @@ export const Reader: React.FC<ReaderProps> = ({
 
   const [savedWords, setSavedWords] =
     useState<Set<string>>(new Set());
+
+  const [srsCardsMap, setSrsCardsMap] =
+    useState<Map<string, SRSCard>>(new Map());
+
+  const [furiganaMode, setFuriganaMode] =
+    useState<FuriganaMode>('unknown_only');
+
+  const [heatmapEnabled, setHeatmapEnabled] =
+    useState<boolean>(true);
+
+  const [settingsOpen, setSettingsOpen] =
+    useState<boolean>(false);
 
   const [addingWord, setAddingWord] =
     useState(false);
@@ -142,6 +166,10 @@ export const Reader: React.FC<ReaderProps> = ({
         if (!mounted) {
           return;
         }
+
+        const map = new Map<string, SRSCard>();
+        cards.forEach((card) => map.set(card.word, card));
+        setSrsCardsMap(map);
 
         setSavedWords(
           new Set(
@@ -532,6 +560,17 @@ export const Reader: React.FC<ReaderProps> = ({
         },
       );
 
+      setSrsCardsMap(
+        (previous) => {
+          const next =
+            new Map(previous);
+
+          next.set(card.word, card);
+
+          return next;
+        },
+      );
+
       const cards =
         await getSRSCards(
           'japanese',
@@ -658,7 +697,7 @@ export const Reader: React.FC<ReaderProps> = ({
             </div>
           </div>
 
-          <div className="hidden sm:flex items-center gap-2">
+          <div className="hidden sm:flex items-center gap-2 relative">
             <Badge variant="gold">
               {mastery}% mastery
             </Badge>
@@ -670,11 +709,68 @@ export const Reader: React.FC<ReaderProps> = ({
 
             <button
               type="button"
-              className="p-2 rounded-lg text-zinc-500 hover:text-zinc-100 hover:bg-zinc-800"
+              onClick={() => setSettingsOpen((prev) => !prev)}
+              className={`p-2 rounded-lg transition-colors ${
+                settingsOpen
+                  ? 'bg-zinc-800 text-amber-400'
+                  : 'text-zinc-500 hover:text-zinc-100 hover:bg-zinc-800'
+              }`}
               title="Reader settings"
             >
               <Settings2 size={16} />
             </button>
+
+            {settingsOpen && (
+              <div className="absolute right-0 top-full mt-2 w-64 rounded-xl border border-zinc-800 bg-zinc-900/95 backdrop-blur-xl p-4 shadow-2xl z-50 space-y-4">
+                <div>
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-400 mb-2">
+                    Furigana
+                  </div>
+                  <div className="grid grid-cols-3 gap-1 p-1 bg-zinc-950 rounded-lg border border-zinc-800 text-xs">
+                    {(['all', 'unknown_only', 'none'] as FuriganaMode[]).map((mode) => (
+                      <button
+                        key={mode}
+                        type="button"
+                        onClick={() => setFuriganaMode(mode)}
+                        className={`py-1.5 rounded-md text-[11px] font-medium transition-all ${
+                          furiganaMode === mode
+                            ? 'bg-amber-400 text-zinc-950 shadow'
+                            : 'text-zinc-400 hover:text-zinc-200'
+                        }`}
+                      >
+                        {mode === 'all' ? 'All' : mode === 'unknown_only' ? 'Unknown' : 'Off'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="pt-2 border-t border-zinc-800/80">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <div className="text-xs font-medium text-zinc-200">
+                        Vocabulary Heatmap
+                      </div>
+                      <div className="text-[10px] text-zinc-500">
+                        Color-code words by SRS mastery
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setHeatmapEnabled((prev) => !prev)}
+                      className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                        heatmapEnabled ? 'bg-amber-400' : 'bg-zinc-700'
+                      }`}
+                    >
+                      <span
+                        className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-zinc-950 shadow-lg ring-0 transition duration-200 ease-in-out ${
+                          heatmapEnabled ? 'translate-x-4' : 'translate-x-0'
+                        }`}
+                      />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </header>
@@ -812,52 +908,94 @@ export const Reader: React.FC<ReaderProps> = ({
                           ].join(' ')}
                           title="Double-click to translate this sentence"
                         >
-                          {sentence.tokens.map(
-                            (token) => {
-                              if (
-                                token.isWordLike ===
-                                false
-                              ) {
-                                return (
-                                  <React.Fragment
-                                    key={
-                                      token.id
-                                    }
-                                  >
-                                    {
-                                      token.surface
-                                    }
-                                  </React.Fragment>
-                                );
-                              }
-
+                          {sentence.tokens.map((token) => {
+                            if (token.isWordLike === false) {
                               return (
-                                <button
-                                  key={
-                                    token.id
-                                  }
-                                  type="button"
-                                  onClick={() =>
-                                    handleSelectToken(
-                                      token,
-                                    )
-                                  }
-                                  className="rounded-md transition-colors duration-100 hover:bg-amber-400/10 hover:text-amber-300"
-                                  title={
-                                    token.lemma &&
-                                    token.lemma !==
-                                      token.surface
-                                      ? `Dictionary form: ${token.lemma}`
-                                      : undefined
-                                  }
-                                >
-                                  {
-                                    token.surface
-                                  }
-                                </button>
+                                <React.Fragment key={token.id}>
+                                  {token.surface}
+                                </React.Fragment>
                               );
-                            },
-                          )}
+                            }
+
+                            const lemma =
+                              token.lemma?.trim() ||
+                              token.dictionaryForm?.trim() ||
+                              token.surface.trim();
+
+                            const hasKanji = /[\u4E00-\u9FAF]/.test(token.surface);
+                            const card = srsCardsMap.get(lemma);
+                            const isSaved = savedWords.has(lemma);
+                            const isDue = card
+                              ? new Date(card.next_review_date) <= new Date()
+                              : false;
+                            const isMastered = card
+                              ? card.reps >= 3 || card.state === 2
+                              : false;
+                            const isLearning = isSaved && !isMastered;
+
+                            // Furigana logic
+                            const hiragana = katakanaToHiragana(token.reading);
+                            const showFurigana =
+                              hasKanji &&
+                              Boolean(hiragana) &&
+                              hiragana !== token.surface &&
+                              (furiganaMode === 'all' ||
+                                (furiganaMode === 'unknown_only' && !isSaved));
+
+                            // Heatmap styling
+                            let heatmapClass =
+                              'hover:bg-amber-400/10 hover:text-amber-300';
+                            if (heatmapEnabled) {
+                              if (isDue) {
+                                heatmapClass =
+                                  'bg-amber-400/15 text-amber-200 border-b-2 border-amber-400 font-medium hover:bg-amber-400/25';
+                              } else if (isLearning) {
+                                heatmapClass =
+                                  'border-b border-amber-400/50 text-amber-100 bg-amber-400/5 hover:bg-amber-400/15';
+                              } else if (isMastered) {
+                                heatmapClass =
+                                  'text-zinc-100 hover:bg-emerald-400/10 hover:text-emerald-300';
+                              } else if (hasKanji) {
+                                heatmapClass =
+                                  'border-b border-dashed border-zinc-700/80 text-zinc-300 hover:border-amber-400/50 hover:bg-amber-400/10';
+                              }
+                            }
+
+                            return (
+                              <button
+                                key={token.id}
+                                type="button"
+                                onClick={() => handleSelectToken(token)}
+                                className={`inline-block mx-[1px] px-0.5 rounded transition-all duration-100 ${heatmapClass}`}
+                                title={
+                                  token.lemma && token.lemma !== token.surface
+                                    ? `Dictionary form: ${token.lemma}${
+                                        isDue
+                                          ? ' • Due for review'
+                                          : isMastered
+                                          ? ' • Mastered'
+                                          : isLearning
+                                          ? ' • Learning'
+                                          : ''
+                                      }`
+                                    : isDue
+                                    ? 'Due for review'
+                                    : undefined
+                                }
+                              >
+                                {showFurigana ? (
+                                  <ruby className="[ruby-align:center]">
+                                    {token.surface}
+                                    <rt className="text-[10px] text-amber-400/90 font-normal select-none pointer-events-none text-center leading-none">
+                                      {hiragana}
+                                    </rt>
+                                  </ruby>
+                                ) : (
+                                  token.surface
+                                )}
+                              </button>
+                            );
+                          })}
                         </p>
                       ),
                     )}
@@ -1062,6 +1200,9 @@ const WordPanel: React.FC<
       null,
     );
 
+  const [lookupCount, setLookupCount] =
+    useState<number>(1);
+
   useEffect(() => {
     const controller =
       new AbortController();
@@ -1071,6 +1212,21 @@ const WordPanel: React.FC<
     setEntries([]);
     setError(null);
     setLoading(true);
+
+    // Record word lookup locally in IndexedDB and sync to cloud
+    recordWordLookup(lemma, 'japanese')
+      .then((count) => {
+        if (!cancelled) {
+          setLookupCount(count);
+        }
+      })
+      .catch((err) => {
+        console.error('Failed to record local word lookup:', err);
+      });
+
+    recordWordLookupApi(lemma, 'japanese').catch((err) => {
+      console.error('Failed to record backend word lookup:', err);
+    });
 
     lookupJapanese(
       lemma,
@@ -1120,11 +1276,18 @@ const WordPanel: React.FC<
               {token.surface}
             </div>
 
-            {reading && (
-              <div className="text-sm text-amber-400 mt-1">
-                {reading}
-              </div>
-            )}
+            <div className="flex items-center gap-2 mt-1 flex-wrap">
+              {reading && (
+                <div className="text-sm text-amber-400">
+                  {reading}
+                </div>
+              )}
+              {lookupCount > 1 && (
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20 font-medium">
+                  Looked up {lookupCount}×
+                </span>
+              )}
+            </div>
           </div>
 
           <button
@@ -1290,6 +1453,28 @@ const WordPanel: React.FC<
             Explain
           </button>
         </div>
+
+        {!isSaved && lookupCount >= 3 && (
+          <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-between gap-3">
+            <div>
+              <div className="text-xs font-semibold text-amber-300">
+                Frequent Lookup ({lookupCount}×)
+              </div>
+              <div className="text-[11px] text-zinc-400 mt-0.5">
+                You've looked this up {lookupCount} times. Add to SRS to commit to memory?
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={onAdd}
+              disabled={adding}
+              className="px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-zinc-950 font-medium text-xs whitespace-nowrap transition-colors flex items-center gap-1 shrink-0"
+            >
+              <Plus size={13} />
+              Add Now
+            </button>
+          </div>
+        )}
 
         {!isSaved ? (
           <Button

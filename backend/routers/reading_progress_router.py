@@ -1,8 +1,7 @@
 from fastapi import APIRouter, Header
+from typing import Optional
 
-from repositories.reading_progress_repository import (
-    ReadingProgressRepository
-)
+from repositories.reading_progress_repository import ReadingProgressRepository
 
 router = APIRouter(
     prefix="/api/v1/reading",
@@ -10,9 +9,7 @@ router = APIRouter(
 )
 
 
-@router.get(
-    "/books/{book_id}/progress"
-)
+@router.get("/books/{book_id}/progress")
 async def get_reading_progress(
     book_id: str,
     x_user_id: str = Header(...)
@@ -28,9 +25,7 @@ async def get_reading_progress(
     return progress
 
 
-@router.put(
-    "/books/{book_id}/progress"
-)
+@router.put("/books/{book_id}/progress")
 async def save_reading_progress(
     book_id: str,
     chapter_key: str,

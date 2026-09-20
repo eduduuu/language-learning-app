@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Settings as SettingsIcon, CheckCircle2 } from 'lucide-react';
+import { Settings as SettingsIcon, CheckCircle2, Layers } from 'lucide-react';
 import { api } from '../lib/api';
 import {
   Badge,
@@ -11,6 +11,7 @@ import {
   LoadingState,
   PageHeader,
 } from '../components/ui';
+import { CardManagerModal } from '../components/srs/CardManagerModal';
 
 interface UserSettings {
   id: string;
@@ -24,6 +25,7 @@ export const Settings: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [showCardManager, setShowCardManager] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -63,7 +65,7 @@ export const Settings: React.FC = () => {
         icon={SettingsIcon}
         kicker="Account"
         title="Preferences"
-        subtitle="Tune your daily learning volume and review account details."
+        subtitle="Tune your daily learning volume, manage decks, and review account details."
       />
 
       <Card>
@@ -107,6 +109,34 @@ export const Settings: React.FC = () => {
           </div>
         </form>
       </Card>
+
+      <Card>
+        <CardHeader
+          title="Decks & SRS vocabulary"
+          subtitle="Manage your cards, reschedule repetitions, or import/export with Anki"
+          icon={Layers}
+        />
+        <div className="p-6 space-y-4">
+          <p className="text-xs text-zinc-400 leading-relaxed">
+            View all vocabulary cards created across your books and JLPT study. Reschedule reviews, reset cards to new, mark words as mastered, or export complete decks to Anki.
+          </p>
+
+          <div className="pt-2 flex flex-wrap gap-3">
+            <Button
+              onClick={() => setShowCardManager(true)}
+              size="sm"
+            >
+              <Layers size={14} />
+              Manage cards & decks
+            </Button>
+          </div>
+        </div>
+      </Card>
+
+      <CardManagerModal
+        isOpen={showCardManager}
+        onClose={() => setShowCardManager(false)}
+      />
     </div>
   );
 };

@@ -323,3 +323,200 @@ export async function reviewVocabularyCard(
 
   return data;
 }
+
+/* ============================================================
+   WORD LOOKUP RECORDING
+   ============================================================ */
+
+export interface WordLookupApiResponse {
+  word: string;
+  lookup_count: number;
+}
+
+export async function recordWordLookupApi(
+  word: string,
+  language: string = 'japanese',
+): Promise<WordLookupApiResponse> {
+  const { data } = await api.post<WordLookupApiResponse>('/vocab/lookup', {
+    word,
+    language,
+  });
+  return data;
+}
+
+/* ============================================================
+   GRAMMAR & QUIZ ENGINE
+   ============================================================ */
+
+export interface GrammarTopic {
+  id: string;
+  language: string;
+  level: string;
+  category: string;
+  title: string;
+  summary: string;
+  rule_explanation?: string;
+  pattern_regex?: string;
+  weight: number;
+}
+
+export interface WeakTopic {
+  theme: string;
+  total: number;
+  correct: number;
+  accuracy: number;
+  rule_explanation?: string;
+}
+
+export interface QuizQuestion {
+  id?: string;
+  question: string;
+  options: string[];
+  correct_option_index: number;
+  explanation: string;
+  topic_id?: string;
+  rule_explanation?: string;
+  source?: string;
+}
+
+export async function getGrammarTopics(
+  language: string = 'japanese',
+): Promise<GrammarTopic[]> {
+  const { data } = await api.get<GrammarTopic[]>('/quiz/topics', {
+    params: { language },
+  });
+  return data;
+}
+
+export async function getWeakGrammarTopics(): Promise<WeakTopic[]> {
+  const { data } = await api.get<WeakTopic[]>('/quiz/weak-topics');
+  return data;
+}
+
+export async function generateQuizQuestion(payload: {
+  theme: string;
+  language?: string;
+  complexity?: number;
+  topic_id?: string;
+  use_preseeded_only?: boolean;
+}): Promise<QuizQuestion> {
+  const { data } = await api.post<QuizQuestion>('/quiz/generate', {
+    language: payload.language || 'japanese',
+    theme: payload.theme,
+    complexity: payload.complexity ?? 2,
+    topic_id: payload.topic_id,
+    use_preseeded_only: payload.use_preseeded_only ?? false,
+  });
+  return data;
+}
+
+export async function generateSentenceClozeApi(
+  sentence: string,
+  language: string = 'japanese',
+): Promise<QuizQuestion> {
+  const { data } = await api.post<QuizQuestion>('/quiz/cloze', {
+    sentence,
+    language,
+  });
+  return data;
+}
+
+export async function logQuizAttempt(payload: {
+  theme: string;
+  language?: string;
+  complexity: number;
+  is_correct: boolean;
+  question_id?: string;
+}): Promise<void> {
+  await api.post('/quiz/log', {
+    language: payload.language || 'japanese',
+    theme: payload.theme,
+    complexity: payload.complexity,
+    is_correct: payload.is_correct,
+    question_id: payload.question_id,
+  });
+}
+
+/* ============================================================
+   SRS CARD MANAGEMENT & ANKI
+   ============================================================ */
+
+export interface SRSCardUpdatePayload {
+  state?: number;
+  next_review_date?: string;
+  reps?: number;
+  stability?: number;
+  difficulty?: number;
+  lapses?: number;
+}
+
+export async function updateSRSCard(
+  word: string,
+  payload: SRSCardUpdatePayload,
+  language = 'japanese'
+): Promise<SRSCard> {
+  const { data } = await api.patch<SRSCard>(
+    `/vocab/cards/${encodeURIComponent(word)}`,
+    payload,
+    { params: { language } }
+  );
+  return data;
+}
+
+export async function deleteSRSCard(
+  word: string,
+  language = 'japanese'
+): Promise<{ success: boolean; word: string }> {
+  const { data } = await api.delete<{ success: boolean; word: string }>(
+    `/vocab/cards/${encodeURIComponent(word)}`,
+    { params: { language } }
+  );
+  return data;
+}
+
+export async function bulkSRSCardAction(payload: {
+  words: string[];
+  action: 'mark_new' | 'mark_mastered' | 'reschedule' | 'delete';
+  target_date?: string;
+  language?: string;
+}): Promise<{ affected: number; action: string }> {
+  const { data } = await api.post<{ affected: number; action: string }>(
+    '/vocab/cards/bulk-action',
+    {
+      words: payload.words,
+      action: payload.action,
+      target_date: payload.target_date,
+      language: payload.language || 'japanese',
+    }
+  );
+  return data;
+}
+
+export interface AnkiCardImportPayload {
+  word: string;
+  reading?: string;
+  meaning?: string;
+  sentence?: string;
+  state?: number;
+  difficulty?: number;
+  stability?: number;
+  reps?: number;
+  lapses?: number;
+  next_review_date?: string;
+}
+
+export async function importAnkiCardsApi(payload: {
+  cards: AnkiCardImportPayload[];
+  import_progress?: boolean;
+  language?: string;
+}): Promise<{ imported_count: number; total_cards: number }> {
+  const { data } = await api.post<{ imported_count: number; total_cards: number }>(
+    '/vocab/import-anki',
+    {
+      cards: payload.cards,
+      import_progress: payload.import_progress ?? false,
+      language: payload.language || 'japanese',
+    }
+  );
+  return data;
+}

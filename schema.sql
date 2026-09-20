@@ -58,8 +58,9 @@ CREATE TABLE IF NOT EXISTS "public"."books" (
     "user_id" "uuid" NOT NULL,
     "title" "text" NOT NULL,
     "language" "text" NOT NULL,
-    "created_at" timestamp with time zone DEFAULT "now"() NOT NULL,
-    CONSTRAINT "books_language_check" CHECK (("language" = ANY (ARRAY['japanese'::"text", 'english'::"text"])))
+    "fingerprint" "text",
+    "status" "text" DEFAULT 'learning'::"text" NOT NULL,
+    "created_at" timestamp with time zone DEFAULT "now"() NOT NULL
 );
 
 
@@ -69,13 +70,13 @@ ALTER TABLE "public"."books" OWNER TO "postgres";
 CREATE TABLE IF NOT EXISTS "public"."quiz_logs" (
     "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
     "user_id" "uuid" NOT NULL,
+    "question_id" "uuid",
     "theme" "text" NOT NULL,
     "language" "text" NOT NULL,
     "complexity" integer NOT NULL,
     "is_correct" boolean NOT NULL,
     "created_at" timestamp with time zone DEFAULT "now"() NOT NULL,
-    CONSTRAINT "quiz_logs_complexity_check" CHECK ((("complexity" >= 1) AND ("complexity" <= 5))),
-    CONSTRAINT "quiz_logs_language_check" CHECK (("language" = ANY (ARRAY['japanese'::"text", 'english'::"text"])))
+    CONSTRAINT "quiz_logs_complexity_check" CHECK ((("complexity" >= 1) AND ("complexity" <= 5)))
 );
 
 
@@ -87,18 +88,78 @@ CREATE TABLE IF NOT EXISTS "public"."srs_cards" (
     "user_id" "uuid" NOT NULL,
     "word" "text" NOT NULL,
     "language" "text" NOT NULL,
+    "state" integer DEFAULT 0 NOT NULL,
+    "difficulty" real DEFAULT 0.0 NOT NULL,
+    "stability" real DEFAULT 0.0 NOT NULL,
+    "reps" integer DEFAULT 0 NOT NULL,
+    "lapses" integer DEFAULT 0 NOT NULL,
     "last_reviewed" timestamp with time zone,
     "next_review_date" timestamp with time zone DEFAULT "now"() NOT NULL,
     "ease_factor" real DEFAULT 2.5 NOT NULL,
     "interval" integer DEFAULT 0 NOT NULL,
     "step_count" integer DEFAULT 0 NOT NULL,
-    "created_at" timestamp with time zone DEFAULT "now"() NOT NULL,
-    CONSTRAINT "srs_cards_language_check" CHECK (("language" = ANY (ARRAY['japanese'::"text", 'english'::"text"])))
+    "created_at" timestamp with time zone DEFAULT "now"() NOT NULL
 );
 
 
 ALTER TABLE "public"."srs_cards" OWNER TO "postgres";
 
+
+CREATE TABLE IF NOT EXISTS "public"."reading_progress" (
+    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
+    "user_id" "uuid" NOT NULL,
+    "book_id" "text" NOT NULL,
+    "chapter_key" "text" NOT NULL,
+    "paragraph_index" integer DEFAULT 0 NOT NULL,
+    "updated_at" timestamp with time zone DEFAULT "now"() NOT NULL
+);
+
+
+ALTER TABLE "public"."reading_progress" OWNER TO "postgres";
+
+
+CREATE TABLE IF NOT EXISTS "public"."word_lookups" (
+    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
+    "user_id" "uuid" NOT NULL,
+    "word" "text" NOT NULL,
+    "language" "text" DEFAULT 'japanese'::"text" NOT NULL,
+    "lookup_count" integer DEFAULT 1 NOT NULL,
+    "first_looked_up_at" timestamp with time zone DEFAULT "now"() NOT NULL,
+    "last_looked_up_at" timestamp with time zone DEFAULT "now"() NOT NULL
+);
+
+
+ALTER TABLE "public"."word_lookups" OWNER TO "postgres";
+
+CREATE TABLE IF NOT EXISTS "public"."grammar_topics" (
+    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
+    "language" "text" DEFAULT 'japanese'::"text" NOT NULL,
+    "level" "text" NOT NULL,
+    "category" "text" NOT NULL,
+    "title" "text" NOT NULL,
+    "summary" "text" NOT NULL,
+    "rule_explanation" "text",
+    "pattern_regex" "text",
+    "weight" double precision DEFAULT 1.0,
+    "created_at" timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+ALTER TABLE "public"."grammar_topics" OWNER TO "postgres";
+
+CREATE TABLE IF NOT EXISTS "public"."grammar_questions" (
+    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
+    "topic_id" "uuid",
+    "language" "text" DEFAULT 'japanese'::"text" NOT NULL,
+    "question" "text" NOT NULL,
+    "options" "jsonb" NOT NULL,
+    "correct_option_index" integer NOT NULL,
+    "explanation" "text" NOT NULL,
+    "complexity" integer DEFAULT 1,
+    "is_preseeded" boolean DEFAULT true,
+    "created_at" timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+ALTER TABLE "public"."grammar_questions" OWNER TO "postgres";
 
 CREATE TABLE IF NOT EXISTS "public"."users" (
     "id" "uuid" NOT NULL,
@@ -107,7 +168,6 @@ CREATE TABLE IF NOT EXISTS "public"."users" (
     "created_at" timestamp with time zone DEFAULT "now"() NOT NULL,
     CONSTRAINT "users_tier_check" CHECK (("tier" = ANY (ARRAY['free'::"text", 'paid'::"text"])))
 );
-
 
 ALTER TABLE "public"."users" OWNER TO "postgres";
 

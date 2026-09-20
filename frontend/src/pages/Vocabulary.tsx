@@ -36,9 +36,13 @@ import {
 } from '../components/ui';
 
 import {
+  findSentenceAcrossAllBooks,
   findSentenceInBook,
   listLocalBooks,
 } from '../lib/localBookStore';
+
+import { getRandomJlptItems } from '../lib/dictionary/jlpt_vocab';
+import { lookupJapanese } from '../lib/dictionary/japanese';
 
 interface LocalSavedBook {
   id: string;
@@ -52,7 +56,9 @@ interface VocabCard {
   sentence: string;
   translation: string;
   word_details: VocabWordDetail[];
-  source: 'ai' | 'book';
+  source: 'ai' | 'book' | 'jlpt';
+  format?: 'sentence' | 'single_word';
+  bookTitle?: string;
 }
 
 type Rating =
@@ -120,6 +126,16 @@ export const Vocabulary: React.FC = () => {
 
   const [jlptLevel, setJlptLevel] =
     useState('N5');
+
+  const [cardFormat, setCardFormat] =
+    useState<'sentence' | 'single_word'>(
+      'sentence',
+    );
+
+  const [jlptItemType, setJlptItemType] =
+    useState<'words' | 'kanji' | 'mixed'>(
+      'words',
+    );
 
   const [selectedBookId, setSelectedBookId] =
     useState('');
@@ -326,77 +342,235 @@ export const Vocabulary: React.FC = () => {
       setReviewSuccess(false);
 
       try {
+        /* ======================================================
+           JLPT MODE
+           ====================================================== */
+        if (mode === 'jlpt') {
+          const [pickedItem] = getRandomJlptItems(
+            jlptLevel,
+            jlptItemType,
+            1,
+          );
+          const targetWord = pickedItem || '日本';
+
+          if (cardFormat === 'single_word') {
+            try {
+              const dictEntries = await lookupJapanese(targetWord);
+              const entry = dictEntries[0];
+              const reading = entry?.reading || '';
+              const meaning =
+                entry?.senses
+                  ?.map((s) => s.englishDefinitions.join(', '))
+                  .filter(Boolean)
+                  .join('; ') || '';
+
+              setCard({
+                words: [targetWord],
+                sentence: '',
+                translation: '',
+                word_details: [
+                  {
+                    base_word: targetWord,
+                    conjugated_word: targetWord,
+                    reading,
+                    meaning,
+                  },
+                ],
+                source: 'jlpt',
+                format: 'single_word',
+              });
+            } catch {
+              setCard({
+                words: [targetWord],
+                sentence: '',
+                translation: '',
+                word_details: [
+                  {
+                    base_word: targetWord,
+                    conjugated_word: targetWord,
+                    reading: '',
+                    meaning: 'Dictionary definition unavailable.',
+                  },
+                ],
+                source: 'jlpt',
+                format: 'single_word',
+              });
+            }
+            return;
+          }
+
+          /* Sentence format in JLPT mode:
+             1. Search in local books first for an authentic sentence! */
+          let localSentenceMatch: {
+            sentence: string;
+            conjugatedWord?: string;
+            reading?: string;
+            meaning?: string;
+            bookTitle?: string;
+          } | null = null;
+
+          if (selectedLocalBookId) {
+            const found = await findSentenceInBook(
+              selectedLocalBookId,
+              targetWord,
+            );
+            if (found) {
+              const b = localBooks.find(
+                (lb) => lb.id === selectedLocalBookId,
+              );
+              localSentenceMatch = {
+                ...found,
+                bookTitle: b?.title,
+              };
+            }
+          }
+
+          if (!localSentenceMatch) {
+            const foundAcross =
+              await findSentenceAcrossAllBooks(targetWord);
+            if (foundAcross) {
+              localSentenceMatch = {
+                ...foundAcross.sentence,
+                bookTitle: foundAcross.bookTitle,
+              };
+            }
+          }
+
+          if (localSentenceMatch) {
+            const initialDetails: VocabWordDetail[] = [
+              {
+                base_word: targetWord,
+                conjugated_word:
+                  localSentenceMatch.conjugatedWord ?? targetWord,
+                reading: localSentenceMatch.reading ?? '',
+                meaning: localSentenceMatch.meaning ?? '',
+              },
+            ];
+
+            setCard({
+              words: [targetWord],
+              sentence: localSentenceMatch.sentence,
+              translation: '',
+              word_details: initialDetails,
+              source: 'book',
+              format: 'sentence',
+              bookTitle: localSentenceMatch.bookTitle,
+            });
+
+            void enrichBookCard(
+              localSentenceMatch.sentence,
+              [targetWord],
+            );
+            return;
+          }
+
+          /* 2. Fall back to AI sentence generation if not found in books */
+          const response = await generateVocabulary({
+            mode: 'jlpt',
+            sentence_mode: 'ai',
+            language,
+            jlpt_level: jlptLevel,
+            sentence_max_words: sentenceMaxWords,
+            kanji_density: kanjiDensity,
+            target_vocab_count: targetVocabCount,
+          });
+
+          const aiResponse = response as AIVocabResponse;
+          setCard({
+            words: aiResponse.words,
+            sentence: aiResponse.sentence,
+            translation: aiResponse.translation,
+            word_details: aiResponse.word_details,
+            source: 'ai',
+            format: 'sentence',
+          });
+          return;
+        }
+
+        /* ======================================================
+           BOOKS MODE
+           ====================================================== */
         const effectiveTargetCount =
-          mode === 'books' &&
-          sentenceMode === 'book'
+          cardFormat === 'single_word' || sentenceMode === 'book'
             ? 1
             : targetVocabCount;
 
         const response =
           await generateVocabulary({
-            mode,
-
+            mode: 'books',
             sentence_mode:
-              mode === 'books'
-                ? sentenceMode
-                : 'ai',
-
+              cardFormat === 'single_word'
+                ? 'book'
+                : sentenceMode,
             language,
-
-            jlpt_level:
-              mode === 'jlpt'
-                ? jlptLevel
-                : undefined,
-
-            book_id:
-              mode === 'books'
-                ? selectedBookId
-                : undefined,
-
-            start_page:
-              mode === 'books'
-                ? startPage
-                : undefined,
-
-            end_page:
-              mode === 'books'
-                ? endPage
-                : undefined,
-
-            sentence_max_words:
-              sentenceMaxWords,
-
-            kanji_density:
-              kanjiDensity,
-
-            target_vocab_count:
-              effectiveTargetCount,
+            book_id: selectedBookId || undefined,
+            start_page: startPage,
+            end_page: endPage,
+            sentence_max_words: sentenceMaxWords,
+            kanji_density: kanjiDensity,
+            target_vocab_count: effectiveTargetCount,
           });
+
+        const word = response.words[0];
+        if (!word) {
+          throw new Error(
+            'The backend returned no vocabulary word.',
+          );
+        }
+
+        if (cardFormat === 'single_word') {
+          try {
+            const dictEntries = await lookupJapanese(word);
+            const entry = dictEntries[0];
+            const reading = entry?.reading || '';
+            const meaning =
+              entry?.senses
+                ?.map((s) => s.englishDefinitions.join(', '))
+                .filter(Boolean)
+                .join('; ') || '';
+
+            setCard({
+              words: [word],
+              sentence: '',
+              translation: '',
+              word_details: [
+                {
+                  base_word: word,
+                  conjugated_word: word,
+                  reading,
+                  meaning,
+                },
+              ],
+              source: 'book',
+              format: 'single_word',
+            });
+          } catch {
+            setCard({
+              words: [word],
+              sentence: '',
+              translation: '',
+              word_details: [
+                {
+                  base_word: word,
+                  conjugated_word: word,
+                  reading: '',
+                  meaning: 'Dictionary definition unavailable.',
+                },
+              ],
+              source: 'book',
+              format: 'single_word',
+            });
+          }
+          return;
+        }
 
         /* ======================================================
            BOOK SENTENCE MODE
-
-           The backend gives us the vocabulary word.
-           The sentence itself comes from local IndexedDB.
-
-           The card is displayed immediately.
-           Enrichment happens asynchronously afterwards.
            ====================================================== */
-
         if (
           'sentence_mode' in response &&
-          response.sentence_mode ===
-            'book'
+          response.sentence_mode === 'book'
         ) {
-          const word =
-            response.words[0];
-
-          if (!word) {
-            throw new Error(
-              'The backend returned no vocabulary word.',
-            );
-          }
-
           if (!selectedLocalBookId) {
             throw new Error(
               'The selected book is not available locally.',
@@ -413,82 +587,48 @@ export const Vocabulary: React.FC = () => {
             setError(
               `Could not find a sentence containing "${word}" in the local book.`,
             );
-
             return;
           }
 
-          const initialDetails: VocabWordDetail[] =
-            [
-              {
-                base_word:
-                  word,
-
-                conjugated_word:
-                  localSentence.conjugatedWord ??
-                  word,
-
-                reading:
-                  localSentence.reading ??
-                  '',
-
-                meaning:
-                  localSentence.meaning ??
-                  '',
-              },
-            ];
+          const initialDetails: VocabWordDetail[] = [
+            {
+              base_word: word,
+              conjugated_word:
+                localSentence.conjugatedWord ?? word,
+              reading: localSentence.reading ?? '',
+              meaning: localSentence.meaning ?? '',
+            },
+          ];
 
           setCard({
-            words:
-              response.words,
-
-            sentence:
-              localSentence.sentence,
-
-            translation:
-              '',
-
-            word_details:
-              initialDetails,
-
-            source:
-              'book',
+            words: response.words,
+            sentence: localSentence.sentence,
+            translation: '',
+            word_details: initialDetails,
+            source: 'book',
+            format: 'sentence',
           });
 
-          /*
-           * The sentence is already visible.
-           * Now ask the backend/LLM for translation,
-           * reading, meaning and conjugation details.
-           */
           void enrichBookCard(
             localSentence.sentence,
             response.words,
           );
-
           return;
         }
 
         /* ======================================================
            AI MODE
            ====================================================== */
-
         const aiResponse =
           response as AIVocabResponse;
 
         setCard({
-          words:
-            aiResponse.words,
-
-          sentence:
-            aiResponse.sentence,
-
-          translation:
-            aiResponse.translation,
-
-          word_details:
-            aiResponse.word_details,
-
-          source:
-            'ai',
+          words: aiResponse.words,
+          sentence: aiResponse.sentence,
+          translation: aiResponse.translation,
+          word_details: aiResponse.word_details,
+          source: 'ai',
+          format: 'sentence',
         });
       } catch (err: unknown) {
         const axiosError =
@@ -632,6 +772,36 @@ export const Vocabulary: React.FC = () => {
             <div className="p-6 space-y-5">
               <div>
                 <Label>
+                  Card format
+                </Label>
+
+                <Segmented
+                  value={cardFormat}
+                  onChange={(value) =>
+                    setCardFormat(
+                      value as
+                        | 'sentence'
+                        | 'single_word',
+                    )
+                  }
+                  className="w-full"
+                  options={[
+                    {
+                      value: 'sentence',
+                      label:
+                        'Sentence context',
+                    },
+                    {
+                      value: 'single_word',
+                      label:
+                        'Single word',
+                    },
+                  ]}
+                />
+              </div>
+
+              <div>
+                <Label>
                   Vocabulary source
                 </Label>
 
@@ -660,8 +830,7 @@ export const Vocabulary: React.FC = () => {
                 />
               </div>
 
-              {mode ===
-                'books' && (
+              {mode === 'books' && cardFormat === 'sentence' && (
                 <div>
                   <Label>
                     Sentence source
@@ -701,34 +870,86 @@ export const Vocabulary: React.FC = () => {
 
               {mode ===
               'jlpt' ? (
-                <div>
-                  <Label>
-                    JLPT level
-                  </Label>
+                <div className="space-y-4">
+                  <div>
+                    <Label>
+                      JLPT level
+                    </Label>
 
-                  <Segmented
-                    value={
-                      jlptLevel
-                    }
-                    onChange={
-                      setJlptLevel
-                    }
-                    className="w-full"
-                    options={[
-                      'N5',
-                      'N4',
-                      'N3',
-                      'N2',
-                      'N1',
-                    ].map(
-                      (level) => ({
-                        value:
-                          level,
-                        label:
-                          level,
-                      }),
-                    )}
-                  />
+                    <Segmented
+                      value={
+                        jlptLevel
+                      }
+                      onChange={
+                        setJlptLevel
+                      }
+                      className="w-full"
+                      options={[
+                        'N5',
+                        'N4',
+                        'N3',
+                        'N2',
+                        'N1',
+                      ].map(
+                        (level) => ({
+                          value:
+                            level,
+                          label:
+                            level,
+                        }),
+                      )}
+                    />
+                  </div>
+
+                  <div>
+                    <Label>
+                      Item focus
+                    </Label>
+
+                    <Segmented
+                      value={
+                        jlptItemType
+                      }
+                      onChange={(
+                        val,
+                      ) =>
+                        setJlptItemType(
+                          val as
+                            | 'words'
+                            | 'kanji'
+                            | 'mixed',
+                        )
+                      }
+                      className="w-full"
+                      options={[
+                        {
+                          value:
+                            'words',
+                          label:
+                            'Vocabulary',
+                        },
+                        {
+                          value:
+                            'kanji',
+                          label:
+                            'Kanji',
+                        },
+                        {
+                          value:
+                            'mixed',
+                          label:
+                            'Mixed',
+                        },
+                      ]}
+                    />
+                  </div>
+
+                  {cardFormat ===
+                    'sentence' && (
+                    <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-3 text-xs text-zinc-500">
+                      Searches your local books first for an authentic sentence containing the word, falling back to AI if not found.
+                    </div>
+                  )}
                 </div>
               ) : (
                 <div className="space-y-3">
@@ -779,7 +1000,7 @@ export const Vocabulary: React.FC = () => {
                     </select>
                   </div>
 
-                  {sentenceMode ===
+                  {cardFormat === 'sentence' && sentenceMode ===
                     'book' && (
                     <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-3 text-xs text-zinc-500">
                       The word comes from
@@ -844,60 +1065,62 @@ export const Vocabulary: React.FC = () => {
                 </div>
               )}
 
-              <div className="space-y-4 pt-4 border-t border-zinc-800/60">
-                <Slider
-                  label="Max sentence length"
-                  min={5}
-                  max={30}
-                  value={
-                    sentenceMaxWords
-                  }
-                  onChange={
-                    setSentenceMaxWords
-                  }
-                  display={`${sentenceMaxWords} words`}
-                />
-
-                {language ===
-                  'japanese' && (
+              {cardFormat === 'sentence' && (
+                <div className="space-y-4 pt-4 border-t border-zinc-800/60">
                   <Slider
-                    label="Kanji density"
-                    min={0}
-                    max={1}
-                    step={0.1}
+                    label="Max sentence length"
+                    min={5}
+                    max={30}
                     value={
-                      kanjiDensity
+                      sentenceMaxWords
                     }
                     onChange={
-                      setKanjiDensity
+                      setSentenceMaxWords
                     }
-                    display={`${Math.round(
-                      kanjiDensity *
-                        100,
-                    )}%`}
+                    display={`${sentenceMaxWords} words`}
                   />
-                )}
 
-                {!(
-                  mode ===
-                    'books' &&
-                  sentenceMode ===
-                    'book'
-                ) && (
-                  <Slider
-                    label="Target words"
-                    min={1}
-                    max={5}
-                    value={
-                      targetVocabCount
-                    }
-                    onChange={
-                      setTargetVocabCount
-                    }
-                    display={`${targetVocabCount}`}
-                  />
-                )}
-              </div>
+                  {language ===
+                    'japanese' && (
+                    <Slider
+                      label="Kanji density"
+                      min={0}
+                      max={1}
+                      step={0.1}
+                      value={
+                        kanjiDensity
+                      }
+                      onChange={
+                        setKanjiDensity
+                      }
+                      display={`${Math.round(
+                        kanjiDensity *
+                          100,
+                      )}%`}
+                    />
+                  )}
+
+                  {!(
+                    mode ===
+                      'books' &&
+                    sentenceMode ===
+                      'book'
+                  ) && (
+                    <Slider
+                      label="Target words"
+                      min={1}
+                      max={5}
+                      value={
+                        targetVocabCount
+                      }
+                      onChange={
+                        setTargetVocabCount
+                      }
+                      display={`${targetVocabCount}`}
+                    />
+                  )}
+                </div>
+              )}
 
               <Button
                 onClick={
@@ -972,10 +1195,15 @@ export const Vocabulary: React.FC = () => {
                 <div className="p-8 sm:p-10 flex-1 flex flex-col gap-6">
                   <div className="flex items-center justify-center gap-2">
                     <Badge variant="muted">
-                      {card.source ===
-                      'book'
-                        ? 'From your book'
-                        : 'AI generated'}
+                      {card.format === 'single_word'
+                        ? (card.source === 'jlpt'
+                            ? `JLPT ${jlptLevel}`
+                            : 'Single Word')
+                        : (card.source === 'book'
+                            ? (card.bookTitle
+                                ? `From ${card.bookTitle}`
+                                : 'From your book')
+                            : 'AI generated')}
                     </Badge>
 
                     {card.source ===
@@ -987,85 +1215,120 @@ export const Vocabulary: React.FC = () => {
                       )}
                   </div>
 
-                  <div className="flex-1 grid place-items-center min-h-[140px]">
-                    <p className="font-display text-3xl sm:text-[2.5rem] leading-[1.35] text-zinc-50 text-center max-w-2xl tracking-tight">
-                      {renderHighlightedSentence(
-                        card.sentence,
-                        card.word_details,
+                  {card.format === 'single_word' ? (
+                    <div className="flex-1 flex flex-col items-center justify-center min-h-[140px] text-center">
+                      <span className="font-display text-5xl sm:text-6xl font-bold text-amber-300 tracking-wide mb-3">
+                        {card.words[0]}
+                      </span>
+                      {showAnswer && card.word_details[0]?.reading && (
+                        <span className="text-xl sm:text-2xl font-mono text-zinc-400 animate-fade-in">
+                          {card.word_details[0].reading}
+                        </span>
                       )}
-                    </p>
-                  </div>
+                    </div>
+                  ) : (
+                    <div className="flex-1 grid place-items-center min-h-[140px]">
+                      <p className="font-display text-3xl sm:text-[2.5rem] leading-[1.35] text-zinc-50 text-center max-w-2xl tracking-tight">
+                        {renderHighlightedSentence(
+                          card.sentence,
+                          card.word_details,
+                        )}
+                      </p>
+                    </div>
+                  )}
 
                   {showAnswer ? (
                     <div className="space-y-4 animate-fade-in">
-                      {card.translation && (
-                        <div className="p-5 rounded-xl bg-amber-400/[0.04] border border-amber-400/20">
-                          <span className="text-[10.5px] font-semibold uppercase tracking-[0.18em] text-amber-400/90 block mb-2">
-                            Translation
+                      {card.format === 'single_word' ? (
+                        <div className="p-5 rounded-xl bg-zinc-950/60 border border-zinc-800/80">
+                          <span className="text-[10.5px] font-semibold uppercase tracking-[0.18em] text-zinc-500 block mb-3">
+                            Definition & Details
                           </span>
 
-                          <p className="text-base text-zinc-100 leading-relaxed">
-                            {
-                              card.translation
-                            }
-                          </p>
+                          <div className="space-y-2">
+                            {card.word_details[0]?.meaning ? (
+                              <p className="text-base text-zinc-200 leading-relaxed">
+                                {card.word_details[0].meaning}
+                              </p>
+                            ) : (
+                              <p className="text-sm text-zinc-500 italic">
+                                No definition available
+                              </p>
+                            )}
+                          </div>
                         </div>
-                      )}
+                      ) : (
+                        <>
+                          {card.translation && (
+                            <div className="p-5 rounded-xl bg-amber-400/[0.04] border border-amber-400/20">
+                              <span className="text-[10.5px] font-semibold uppercase tracking-[0.18em] text-amber-400/90 block mb-2">
+                                Translation
+                              </span>
 
-                      <div className="p-5 rounded-xl bg-zinc-950/60 border border-zinc-800/80">
-                        <span className="text-[10.5px] font-semibold uppercase tracking-[0.18em] text-zinc-500 block mb-4">
-                          Vocabulary breakdown
-                        </span>
-
-                        <div className="space-y-4">
-                          {card.word_details.map(
-                            (
-                              detail,
-                              index,
-                            ) => (
-                              <div
-                                key={
-                                  index
+                              <p className="text-base text-zinc-100 leading-relaxed">
+                                {
+                                  card.translation
                                 }
-                                className="flex flex-col border-l-2 border-amber-400/40 pl-4"
-                              >
-                                <div className="flex items-baseline gap-3 flex-wrap">
-                                  <span className="text-lg font-semibold text-zinc-100">
-                                    {
-                                      detail.base_word
-                                    }
-                                  </span>
+                              </p>
+                            </div>
+                          )}
 
-                                  {detail.conjugated_word &&
-                                    detail.conjugated_word !==
-                                      detail.base_word && (
-                                      <span className="text-xs text-zinc-500">
-                                        in sentence:{' '}
+                          <div className="p-5 rounded-xl bg-zinc-950/60 border border-zinc-800/80">
+                            <span className="text-[10.5px] font-semibold uppercase tracking-[0.18em] text-zinc-500 block mb-4">
+                              Vocabulary breakdown
+                            </span>
+
+                            <div className="space-y-4">
+                              {card.word_details.map(
+                                (
+                                  detail,
+                                  index,
+                                ) => (
+                                  <div
+                                    key={
+                                      index
+                                    }
+                                    className="flex flex-col border-l-2 border-amber-400/40 pl-4"
+                                  >
+                                    <div className="flex items-baseline gap-3 flex-wrap">
+                                      <span className="text-lg font-semibold text-zinc-100">
                                         {
-                                          detail.conjugated_word
+                                          detail.base_word
+                                        }
+                                      </span>
+
+                                      {detail.conjugated_word &&
+                                        detail.conjugated_word !==
+                                          detail.base_word && (
+                                          <span className="text-xs text-zinc-500">
+                                            in sentence:{' '}
+                                            {
+                                              detail.conjugated_word
+                                            }
+                                          </span>
+                                        )}
+
+                                      <span className="text-xs font-mono text-zinc-500">
+                                        {
+                                          detail.reading
+                                        }
+                                      </span>
+                                    </div>
+
+                                    {detail.meaning && (
+                                      <span className="text-sm text-zinc-400 mt-1">
+                                        {
+                                          detail.meaning
                                         }
                                       </span>
                                     )}
-
-                                  <span className="text-xs font-mono text-zinc-500">
-                                    {
-                                      detail.reading
-                                    }
-                                  </span>
-                                </div>
-
-                                {detail.meaning && (
-                                  <span className="text-sm text-zinc-400 mt-1">
-                                    {
-                                      detail.meaning
-                                    }
-                                  </span>
-                                )}
-                              </div>
-                            ),
-                          )}
-                        </div>
-                      </div>
+                                  </div>
+                                ),
+                              )}
+                            </div>
+                          </div>
+                        </>
+                      )}
                     </div>
                   ) : (
                     <button
@@ -1079,8 +1342,9 @@ export const Vocabulary: React.FC = () => {
                       <Eye
                         size={16}
                       />
-                      Reveal translation
-                      & notes
+                      {card.format === 'single_word'
+                        ? 'Reveal definition & reading'
+                        : 'Reveal translation & notes'}
                     </button>
                   )}
                 </div>

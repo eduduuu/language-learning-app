@@ -289,6 +289,22 @@ export async function findSentenceInBook(
 }
 
 /**
+ * Find a sentence containing a target word across any local book in IndexedDB.
+ */
+export async function findSentenceAcrossAllBooks(
+  targetWord: string
+): Promise<{ sentence: LocalSentence; bookId: string; bookTitle: string } | null> {
+  const books = await listLocalBooks();
+  for (const b of books) {
+    const found = await findSentenceInBook(b.id, targetWord);
+    if (found) {
+      return { sentence: found, bookId: b.id, bookTitle: b.title };
+    }
+  }
+  return null;
+}
+
+/**
  * Return all unique lemmas in a locally stored book.
  *
  * Used for book mastery.
@@ -430,7 +446,7 @@ export async function createLocalBookFromEpub(
     'Parsing EPUB locally…'
   );
 
-  const chapters =
+  const { chapters, coverUrl } =
     await parseEpubFile(
       bookId,
       sourceFile,
@@ -488,6 +504,8 @@ export async function createLocalBookFromEpub(
     language,
 
     status: 'learning',
+
+    coverUrl,
 
     fingerprint,
 
@@ -630,4 +648,54 @@ export async function seedMockBooks(): Promise<void> {
     'true',
     'mock-books-seeded'
   );
+}
+
+/* ============================================================
+   WORD LOOKUP FREQUENCY & TRACKING
+   ============================================================ */
+
+export async function recordWordLookup(
+  word: string,
+  language: string = 'japanese'
+): Promise<number> {
+  const normalized = word.trim();
+  if (!normalized) return 0;
+
+  const db = await dbPromise;
+  const key = `${language}:${normalized}`;
+  const existing = await db.get('word_lookups', key);
+  const now = new Date().toISOString();
+
+  if (existing) {
+    const updated = {
+      ...existing,
+      lookupCount: existing.lookupCount + 1,
+      lastLookedUpAt: now,
+    };
+    await db.put('word_lookups', updated, key);
+    return updated.lookupCount;
+  }
+
+  const initial = {
+    word: normalized,
+    language,
+    lookupCount: 1,
+    firstLookedUpAt: now,
+    lastLookedUpAt: now,
+  };
+  await db.put('word_lookups', initial, key);
+  return 1;
+}
+
+export async function getWordLookupCount(
+  word: string,
+  language: string = 'japanese'
+): Promise<number> {
+  const normalized = word.trim();
+  if (!normalized) return 0;
+
+  const db = await dbPromise;
+  const key = `${language}:${normalized}`;
+  const record = await db.get('word_lookups', key);
+  return record ? record.lookupCount : 0;
 }

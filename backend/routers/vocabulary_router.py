@@ -1,13 +1,17 @@
 from typing import List, Union
 
-from fastapi import APIRouter, Header
+from fastapi import APIRouter, Header, HTTPException
 
 from schemas.vocabulary import (
+    AnkiImportRequest,
+    AnkiImportResponse,
     EnrichBookSentenceRequest,
     EnrichBookSentenceResponse,
+    SRSCardBulkActionRequest,
     SRSCardCreateRequest,
     SRSCardListItem,
     SRSCardResponse,
+    SRSCardUpdateRequest,
     SRSReviewRequest,
     SRSReviewResponse,
     TranslateSentenceRequest,
@@ -15,6 +19,8 @@ from schemas.vocabulary import (
     VocabBookContextResponse,
     VocabCardResponse,
     VocabGenerateRequest,
+    WordLookupRequest,
+    WordLookupResponse,
 )
 
 from services.srs_service import SRSService
@@ -216,4 +222,134 @@ async def get_book_mastery(
         user_id=x_user_id,
         book_id=book_id,
         language=language
+    )
+
+
+# ============================================================
+# Record word lookup
+# ============================================================
+
+@router.post(
+    "/lookup",
+    response_model=WordLookupResponse
+)
+async def record_word_lookup(
+    req: WordLookupRequest,
+    x_user_id: str = Header(...)
+):
+    result = SRSRepository.record_word_lookup(
+        user_id=x_user_id,
+        word=req.word,
+        language=req.language
+    )
+    return WordLookupResponse(
+        word=req.word,
+        lookup_count=result.get("lookup_count", 1)
+    )
+
+
+# ============================================================
+# Update card status / reschedule
+# ============================================================
+
+@router.patch(
+    "/cards/{word}",
+    response_model=SRSCardResponse
+)
+async def update_srs_card(
+    word: str,
+    req: SRSCardUpdateRequest,
+    language: str = "japanese",
+    x_user_id: str = Header(...)
+):
+    updated = SRSRepository.update_card_status(
+        user_id=x_user_id,
+        word=word,
+        language=language,
+        state=req.state,
+        next_review_date=req.next_review_date,
+        reps=req.reps,
+        stability=req.stability,
+        difficulty=req.difficulty,
+        lapses=req.lapses,
+    )
+    if not updated:
+        raise HTTPException(status_code=404, detail="Card not found")
+
+    return SRSCardResponse(
+        word=updated["word"],
+        language=updated["language"],
+        state=updated.get("state", 0),
+        difficulty=updated.get("difficulty", 0.0),
+        stability=updated.get("stability", 0.0),
+        reps=updated.get("reps", 0),
+        lapses=updated.get("lapses", 0),
+        next_review_date=updated["next_review_date"],
+        last_reviewed=updated.get("last_reviewed"),
+    )
+
+
+# ============================================================
+# Delete card from SRS
+# ============================================================
+
+@router.delete(
+    "/cards/{word}"
+)
+async def delete_srs_card(
+    word: str,
+    language: str = "japanese",
+    x_user_id: str = Header(...)
+):
+    success = SRSRepository.delete_card(
+        user_id=x_user_id,
+        word=word,
+        language=language
+    )
+    return {"success": success, "word": word}
+
+
+# ============================================================
+# Bulk card actions
+# ============================================================
+
+@router.post(
+    "/cards/bulk-action"
+)
+async def bulk_card_action(
+    req: SRSCardBulkActionRequest,
+    x_user_id: str = Header(...)
+):
+    affected = SRSRepository.bulk_action(
+        user_id=x_user_id,
+        words=req.words,
+        language=req.language,
+        action=req.action,
+        target_date=req.target_date
+    )
+    return {"affected": affected, "action": req.action}
+
+
+# ============================================================
+# Import from Anki
+# ============================================================
+
+@router.post(
+    "/import-anki",
+    response_model=AnkiImportResponse
+)
+async def import_anki_cards(
+    req: AnkiImportRequest,
+    x_user_id: str = Header(...)
+):
+    cards_data = [item.model_dump() for item in req.cards]
+    imported = SRSRepository.bulk_upsert_cards(
+        user_id=x_user_id,
+        cards=cards_data,
+        language=req.language,
+        import_progress=req.import_progress
+    )
+    return AnkiImportResponse(
+        imported_count=imported,
+        total_cards=len(req.cards)
     )

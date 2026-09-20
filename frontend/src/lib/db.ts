@@ -1,6 +1,14 @@
 import { openDB, type DBSchema } from 'idb';
 import type { BookSummary, LocalChapter, LocalBookFile } from '../types/book';
 
+export interface WordLookupRecord {
+  word: string;
+  language: string;
+  lookupCount: number;
+  firstLookedUpAt: string;
+  lastLookedUpAt: string;
+}
+
 interface ContextReaderDB extends DBSchema {
   books: {
     key: string;
@@ -20,6 +28,11 @@ interface ContextReaderDB extends DBSchema {
     value: LocalBookFile;
   };
 
+  word_lookups: {
+    key: string;
+    value: WordLookupRecord;
+  };
+
   meta: {
     key: string;
     value: string;
@@ -27,7 +40,7 @@ interface ContextReaderDB extends DBSchema {
 }
 
 const DB_NAME = 'context-reader';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 export const dbPromise = openDB<ContextReaderDB>(DB_NAME, DB_VERSION, {
   upgrade(db) {
@@ -42,6 +55,10 @@ export const dbPromise = openDB<ContextReaderDB>(DB_NAME, DB_VERSION, {
 
     if (!db.objectStoreNames.contains('files')) {
       db.createObjectStore('files');
+    }
+
+    if (!db.objectStoreNames.contains('word_lookups')) {
+      db.createObjectStore('word_lookups');
     }
 
     if (!db.objectStoreNames.contains('meta')) {

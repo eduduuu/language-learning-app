@@ -11,6 +11,11 @@ import { tokenizerClient } from '../tokenizer';
 
 export type EpubProgressCallback = (message: string) => void;
 
+export interface ParseEpubResult {
+  chapters: LocalChapter[];
+  coverUrl?: string;
+}
+
 function stripQueryAndFragment(value: string): string {
   return value.split('#', 1)[0].split('?', 1)[0];
 }
@@ -80,12 +85,17 @@ function normalizeText(value: string): string {
     .trim();
 }
 
+export interface ExtractedChapterContent {
+  paragraphs: string[];
+  rubyMap: Map<string, string>;
+}
+
 /**
- * Extract semantic paragraphs without returning nested duplicates.
- * EPUB XHTML varies substantially, so we prefer real <p> elements and
- * otherwise treat top-level block elements as paragraphs.
+ * Extract semantic paragraphs without returning nested duplicates,
+ * and extract ruby annotations while stripping <rt>, <rp>, <rtc> elements
+ * so that furigana does not get injected into base text content as separate words.
  */
-function extractParagraphs(htmlText: string): string[] {
+function extractParagraphs(htmlText: string): ExtractedChapterContent {
   const parser = new DOMParser();
 
   let document = parser.parseFromString(
@@ -101,13 +111,63 @@ function extractParagraphs(htmlText: string): string[] {
     document.querySelector('body') ??
     document.documentElement;
 
-  if (!root) return [];
+  const rubyMap = new Map<string, string>();
 
+  if (!root) return { paragraphs: [], rubyMap };
+
+  // 1. Extract ruby pairs from all <ruby> tags before modifying the DOM
+  const rubyElements = Array.from(root.querySelectorAll('ruby'));
+  for (const rubyEl of rubyElements) {
+    // Collect child-level pairings: <base><rt>reading</rt>
+    let currentBase = '';
+    for (const child of Array.from(rubyEl.childNodes)) {
+      if (
+        child.nodeType === Node.ELEMENT_NODE &&
+        (child as Element).tagName.toLowerCase() === 'rt'
+      ) {
+        const rtText = (child.textContent ?? '').trim();
+        const base = currentBase.trim();
+        if (base && rtText) {
+          rubyMap.set(base, rtText);
+        }
+        currentBase = '';
+      } else if (
+        child.nodeType === Node.ELEMENT_NODE &&
+        ['rp', 'rtc'].includes((child as Element).tagName.toLowerCase())
+      ) {
+        // ignore ruby parenthesis / alternate ruby container
+      } else {
+        currentBase += child.textContent ?? '';
+      }
+    }
+
+    // Also collect the full ruby block as a fallback (e.g. <ruby>積載<rt>せきさい</rt></ruby>)
+    const clone = rubyEl.cloneNode(true) as Element;
+    const rtTexts: string[] = [];
+    clone.querySelectorAll('rt').forEach((rt) => {
+      const text = (rt.textContent ?? '').trim();
+      if (text) rtTexts.push(text);
+    });
+    clone.querySelectorAll('rt, rp, rtc').forEach((node) => node.remove());
+    const fullBase = (clone.textContent ?? '').trim();
+    const fullRuby = rtTexts.join('');
+    if (fullBase && fullRuby) {
+      rubyMap.set(fullBase, fullRuby);
+    }
+  }
+
+  // 2. Remove all ruby annotation elements (<rt>, <rp>, <rtc>) from the document
+  // so they do not get appended to the paragraph textContent!
+  root.querySelectorAll('rt, rp, rtc').forEach((node) => node.remove());
+
+  // 3. Extract semantic paragraphs
   const paragraphs = Array.from(root.querySelectorAll('p'))
     .map((element) => normalizeText(element.textContent ?? ''))
     .filter(Boolean);
 
-  if (paragraphs.length > 0) return paragraphs;
+  if (paragraphs.length > 0) {
+    return { paragraphs, rubyMap };
+  }
 
   const blocks = Array.from(
     root.querySelectorAll(
@@ -118,16 +178,23 @@ function extractParagraphs(htmlText: string): string[] {
       const parent = element.parentElement;
       if (!parent) return true;
 
-      return !parent.querySelector(':scope > p') &&
-        !element.querySelector('div, section, article, blockquote, li');
+      return (
+        !parent.querySelector(':scope > p') &&
+        !element.querySelector('div, section, article, blockquote, li')
+      );
     })
     .map((element) => normalizeText(element.textContent ?? ''))
     .filter(Boolean);
 
-  if (blocks.length > 0) return blocks;
+  if (blocks.length > 0) {
+    return { paragraphs: blocks, rubyMap };
+  }
 
   const bodyText = normalizeText(root.textContent ?? '');
-  return bodyText ? [bodyText] : [];
+  return {
+    paragraphs: bodyText ? [bodyText] : [],
+    rubyMap,
+  };
 }
 
 export function splitIntoSentences(text: string): string[] {
@@ -184,7 +251,7 @@ export async function parseEpubFile(
   file: File,
   language: BookLanguage,
   onProgress?: EpubProgressCallback
-): Promise<LocalChapter[]> {
+): Promise<ParseEpubResult> {
   const reportProgress =
     typeof onProgress === 'function' ? onProgress : () => {};
 
@@ -255,6 +322,58 @@ export async function parseEpubFile(
     throw new Error('Invalid EPUB: no manifest items were found.');
   }
 
+  // --- Cover image extraction ---
+  let coverId: string | null = null;
+  const metadataEl = firstLocalElement(opfDoc, 'metadata');
+  if (metadataEl) {
+    for (const meta of localElements(metadataEl.ownerDocument!, 'meta')) {
+      if (meta.getAttribute('name')?.toLowerCase() === 'cover') {
+        coverId = meta.getAttribute('content');
+        break;
+      }
+    }
+  }
+
+  if (!coverId) {
+    for (const item of localElements(opfDoc, 'item')) {
+      const props = item.getAttribute('properties');
+      if (props && props.split(/\s+/).includes('cover-image')) {
+        coverId = item.getAttribute('id');
+        break;
+      }
+    }
+  }
+
+  let coverItem = coverId ? manifest.get(coverId) : null;
+  if (!coverItem) {
+    for (const [id, item] of manifest.entries()) {
+      const media = item.mediaType?.toLowerCase() || '';
+      if (media.startsWith('image/')) {
+        const idLower = id.toLowerCase();
+        const hrefLower = item.href.toLowerCase();
+        if (idLower.includes('cover') || hrefLower.includes('cover')) {
+          coverItem = item;
+          break;
+        }
+      }
+    }
+  }
+
+  let coverUrl: string | undefined = undefined;
+  if (coverItem) {
+    try {
+      const coverPath = resolveEpubPath(opfPath, coverItem.href);
+      const coverZipEntry = zip.file(coverPath);
+      if (coverZipEntry) {
+        const base64 = await coverZipEntry.async('base64');
+        const media = coverItem.mediaType || 'image/jpeg';
+        coverUrl = `data:${media};base64,${base64}`;
+      }
+    } catch (e) {
+      console.warn('Failed to extract EPUB cover image:', e);
+    }
+  }
+
   const spine = firstLocalElement(opfDoc, 'spine');
   const spineNodes = spine
     ? localElements(spine.ownerDocument!, 'itemref').filter(
@@ -308,7 +427,7 @@ export async function parseEpubFile(
     }
 
     const htmlText = await contentFile.async('text');
-    const paragraphs = extractParagraphs(htmlText);
+    const { paragraphs, rubyMap } = extractParagraphs(htmlText);
 
     if (paragraphs.length === 0) continue;
 
@@ -317,6 +436,7 @@ export async function parseEpubFile(
     );
 
     const chapterDoc = parserForHtml(htmlText);
+    chapterDoc.querySelectorAll('rt, rp, rtc').forEach((node) => node.remove());
     const titleElement = chapterDoc.querySelector('h1, h2, h3, title');
     const extractedTitle = normalizeText(titleElement?.textContent ?? '');
 
@@ -334,10 +454,18 @@ export async function parseEpubFile(
 
         const tokens = await tokenizerClient.tokenize(sentenceText, language);
 
-        const stableTokens = tokens.map((token, tokenIndex) => ({
-          ...token,
-          id: `${sentenceId}-token-${tokenIndex}`,
-        }));
+        const stableTokens = tokens.map((token, tokenIndex) => {
+          const epubReading =
+            rubyMap.get(token.surface) ||
+            rubyMap.get(token.lemma) ||
+            rubyMap.get(token.dictionaryForm);
+
+          return {
+            ...token,
+            reading: epubReading || token.reading,
+            id: `${sentenceId}-token-${tokenIndex}`,
+          };
+        });
 
         localSentences.push({
           id: sentenceId,
@@ -372,7 +500,7 @@ export async function parseEpubFile(
   }
 
   reportProgress(`Finished parsing ${chapters.length} chapters.`);
-  return chapters;
+  return { chapters, coverUrl };
 }
 
 function parserForHtml(htmlText: string): Document {
