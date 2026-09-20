@@ -1,7 +1,8 @@
 from typing import List, Union
 
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
+from core.auth import get_current_user
 from schemas.vocabulary import (
     AnkiImportRequest,
     AnkiImportResponse,
@@ -48,13 +49,10 @@ srs_service = SRSService()
 )
 async def generate_vocab_card(
     req: VocabGenerateRequest,
-    x_user_id: str = Header(
-        ...,
-        description="Supabase User UUID"
-    )
+    user_id: str = Depends(get_current_user)
 ):
     return await srs_service.generate_vocab_card(
-        x_user_id,
+        user_id,
         req
     )
 
@@ -69,13 +67,10 @@ async def generate_vocab_card(
 )
 async def enrich_book_sentence(
     req: EnrichBookSentenceRequest,
-    x_user_id: str = Header(
-        ...,
-        description="Supabase User UUID"
-    )
+    user_id: str = Depends(get_current_user)
 ):
     return await srs_service.enrich_book_sentence(
-        user_id=x_user_id,
+        user_id=user_id,
         sentence=req.sentence,
         words=req.words
     )
@@ -91,13 +86,10 @@ async def enrich_book_sentence(
 )
 async def translate_sentence(
     req: TranslateSentenceRequest,
-    x_user_id: str = Header(
-        ...,
-        description="Supabase User UUID"
-    )
+    user_id: str = Depends(get_current_user)
 ):
     return await srs_service.translate_sentence(
-        user_id=x_user_id,
+        user_id=user_id,
         sentence=req.sentence,
         language=req.language
     )
@@ -113,16 +105,14 @@ async def translate_sentence(
 )
 async def add_card_to_srs(
     req: SRSCardCreateRequest,
-    x_user_id: str = Header(
-        ...,
-        description="Supabase User UUID"
-    )
+    user_id: str = Depends(get_current_user)
 ):
     card = srs_service.add_card(
-        user_id=x_user_id,
+        user_id=user_id,
         word=req.word,
         language=req.language
     )
+
 
     return SRSCardResponse(
         word=card["word"],
@@ -147,13 +137,10 @@ async def add_card_to_srs(
 )
 async def get_srs_cards(
     language: str = "japanese",
-    x_user_id: str = Header(
-        ...,
-        description="Supabase User UUID"
-    )
+    user_id: str = Depends(get_current_user)
 ):
     cards = SRSRepository.get_all_cards(
-        user_id=x_user_id,
+        user_id=user_id,
         language=language
     )
 
@@ -183,13 +170,10 @@ async def get_srs_cards(
 )
 async def review_card(
     req: SRSReviewRequest,
-    x_user_id: str = Header(
-        ...,
-        description="Supabase User UUID"
-    )
+    user_id: str = Depends(get_current_user)
 ):
     card_data = srs_service.process_review(
-        user_id=x_user_id,
+        user_id=user_id,
         word=req.word,
         language=req.language,
         rating=req.rating
@@ -216,10 +200,10 @@ async def review_card(
 async def get_book_mastery(
     book_id: str,
     language: str = "japanese",
-    x_user_id: str = Header(...)
+    user_id: str = Depends(get_current_user)
 ):
     return srs_service.get_book_mastery(
-        user_id=x_user_id,
+        user_id=user_id,
         book_id=book_id,
         language=language
     )
@@ -235,10 +219,10 @@ async def get_book_mastery(
 )
 async def record_word_lookup(
     req: WordLookupRequest,
-    x_user_id: str = Header(...)
+    user_id: str = Depends(get_current_user)
 ):
     result = SRSRepository.record_word_lookup(
-        user_id=x_user_id,
+        user_id=user_id,
         word=req.word,
         language=req.language
     )
@@ -260,10 +244,10 @@ async def update_srs_card(
     word: str,
     req: SRSCardUpdateRequest,
     language: str = "japanese",
-    x_user_id: str = Header(...)
+    user_id: str = Depends(get_current_user)
 ):
     updated = SRSRepository.update_card_status(
-        user_id=x_user_id,
+        user_id=user_id,
         word=word,
         language=language,
         state=req.state,
@@ -299,10 +283,10 @@ async def update_srs_card(
 async def delete_srs_card(
     word: str,
     language: str = "japanese",
-    x_user_id: str = Header(...)
+    user_id: str = Depends(get_current_user)
 ):
     success = SRSRepository.delete_card(
-        user_id=x_user_id,
+        user_id=user_id,
         word=word,
         language=language
     )
@@ -318,10 +302,10 @@ async def delete_srs_card(
 )
 async def bulk_card_action(
     req: SRSCardBulkActionRequest,
-    x_user_id: str = Header(...)
+    user_id: str = Depends(get_current_user)
 ):
     affected = SRSRepository.bulk_action(
-        user_id=x_user_id,
+        user_id=user_id,
         words=req.words,
         language=req.language,
         action=req.action,
@@ -340,11 +324,11 @@ async def bulk_card_action(
 )
 async def import_anki_cards(
     req: AnkiImportRequest,
-    x_user_id: str = Header(...)
+    user_id: str = Depends(get_current_user)
 ):
     cards_data = [item.model_dump() for item in req.cards]
     imported = SRSRepository.bulk_upsert_cards(
-        user_id=x_user_id,
+        user_id=user_id,
         cards=cards_data,
         language=req.language,
         import_progress=req.import_progress
