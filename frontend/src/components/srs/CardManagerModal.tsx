@@ -372,26 +372,26 @@ export const CardManagerModal: React.FC<CardManagerModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-zinc-950/80 backdrop-blur-md animate-fade-in">
-      <div className="relative w-full max-w-5xl h-[90vh] bg-zinc-900 border border-zinc-800 rounded-2xl flex flex-col shadow-2xl overflow-hidden">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-zinc-950/80 backdrop-blur-md animate-fade-in">
+      <div className="relative w-full max-w-5xl h-[92vh] sm:h-[90vh] bg-zinc-900 border border-zinc-800 rounded-2xl flex flex-col shadow-2xl overflow-hidden">
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-5 border-b border-zinc-800/80 bg-zinc-900/90">
-          <div className="flex items-center gap-3">
-            <div className="p-2.5 rounded-xl bg-amber-400/10 border border-amber-400/20 text-amber-400">
-              <Layers size={20} />
+        <div className="flex items-center justify-between px-4 sm:px-6 py-4 sm:py-5 border-b border-zinc-800/80 bg-zinc-900/90">
+          <div className="flex items-center gap-2.5 sm:gap-3">
+            <div className="p-2 sm:p-2.5 rounded-xl bg-amber-400/10 border border-amber-400/20 text-amber-400 shrink-0">
+              <Layers size={18} />
             </div>
             <div>
-              <h2 className="text-lg font-bold text-zinc-100 flex items-center gap-2">
+              <h2 className="text-base sm:text-lg font-bold text-zinc-100 flex items-center gap-2">
                 Deck & Card Manager
-                <Badge variant="muted">{cards.length} cards</Badge>
+                <Badge variant="muted" className="hidden sm:inline-flex">{cards.length} cards</Badge>
               </h2>
-              <p className="text-xs text-zinc-400">
+              <p className="text-xs text-zinc-400 hidden sm:block">
                 Inspect, reschedule, and manage repetitions across all your books and decks.
               </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 sm:gap-3">
             <label className="cursor-pointer">
               <input
                 type="file"
@@ -399,31 +399,31 @@ export const CardManagerModal: React.FC<CardManagerModalProps> = ({
                 onChange={handleFileUpload}
                 className="hidden"
               />
-              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-zinc-700 hover:border-zinc-500 bg-zinc-800/60 hover:bg-zinc-800 text-xs font-medium text-zinc-200 transition-all">
+              <span className="inline-flex items-center gap-1 px-2.5 sm:px-3 py-1.5 rounded-lg border border-zinc-700 hover:border-zinc-500 bg-zinc-800/60 hover:bg-zinc-800 text-xs font-medium text-zinc-200 transition-all">
                 <Upload size={14} />
-                Import Anki
+                <span className="hidden sm:inline">Import Anki</span>
               </span>
             </label>
 
             <button
               onClick={() => setShowExportDialog(true)}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-zinc-700 hover:border-zinc-500 bg-zinc-800/60 hover:bg-zinc-800 text-xs font-medium text-zinc-200 transition-all"
+              className="inline-flex items-center gap-1 px-2.5 sm:px-3 py-1.5 rounded-lg border border-zinc-700 hover:border-zinc-500 bg-zinc-800/60 hover:bg-zinc-800 text-xs font-medium text-zinc-200 transition-all"
             >
               <Download size={14} />
-              Export Anki
+              <span className="hidden sm:inline">Export Anki</span>
             </button>
 
             <button
               onClick={onClose}
               className="p-1.5 text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 rounded-lg transition-all"
             >
-              <X size={20} />
+              <X size={18} />
             </button>
           </div>
         </div>
 
         {/* Filter Bar */}
-        <div className="p-4 border-b border-zinc-800/60 bg-zinc-950/40 flex flex-wrap items-center gap-3">
+        <div className="p-3 sm:p-4 border-b border-zinc-800/60 bg-zinc-950/40 flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-3">
           {/* Search */}
           <div className="relative flex-1 min-w-[200px]">
             <Search
@@ -434,41 +434,43 @@ export const CardManagerModal: React.FC<CardManagerModalProps> = ({
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search cards by word…"
-              className="pl-9 h-9 text-xs"
+              className="pl-9 h-9 text-xs w-full"
             />
           </div>
 
-          {/* Book Filter */}
           <div className="flex items-center gap-2">
-            <BookOpen size={14} className="text-zinc-500" />
-            <select
-              value={selectedBookId}
-              onChange={(e) => setSelectedBookId(e.target.value)}
-              className="h-9 px-3 bg-zinc-900 border border-zinc-800 rounded-lg text-xs text-zinc-200 focus:outline-none focus:border-amber-400/40"
-            >
-              <option value="all">All Decks & Books</option>
-              {localBooks.map((b) => (
-                <option key={b.id} value={b.id}>
-                  Book: {b.title}
-                </option>
-              ))}
-            </select>
-          </div>
+            {/* Book Filter */}
+            <div className="flex-1 sm:flex-initial flex items-center gap-1.5 min-w-0">
+              <BookOpen size={14} className="text-zinc-500 shrink-0" />
+              <select
+                value={selectedBookId}
+                onChange={(e) => setSelectedBookId(e.target.value)}
+                className="w-full sm:w-auto h-9 px-2 sm:px-3 bg-zinc-900 border border-zinc-800 rounded-lg text-xs text-zinc-200 focus:outline-none focus:border-amber-400/40 truncate"
+              >
+                <option value="all">All Decks & Books</option>
+                {localBooks.map((b) => (
+                  <option key={b.id} value={b.id}>
+                    Book: {b.title}
+                  </option>
+                ))}
+              </select>
+            </div>
 
-          {/* Status Filter */}
-          <div className="flex items-center gap-2">
-            <Filter size={14} className="text-zinc-500" />
-            <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value as any)}
-              className="h-9 px-3 bg-zinc-900 border border-zinc-800 rounded-lg text-xs text-zinc-200 focus:outline-none focus:border-amber-400/40"
-            >
-              <option value="all">All Statuses</option>
-              <option value="0">New (0)</option>
-              <option value="1">Learning (1)</option>
-              <option value="2">Mastered (2)</option>
-              <option value="3">Relearning (3)</option>
-            </select>
+            {/* Status Filter */}
+            <div className="flex-1 sm:flex-initial flex items-center gap-1.5 min-w-0">
+              <Filter size={14} className="text-zinc-500 shrink-0" />
+              <select
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value as any)}
+                className="w-full sm:w-auto h-9 px-2 sm:px-3 bg-zinc-900 border border-zinc-800 rounded-lg text-xs text-zinc-200 focus:outline-none focus:border-amber-400/40"
+              >
+                <option value="all">All Statuses</option>
+                <option value="0">New (0)</option>
+                <option value="1">Learning (1)</option>
+                <option value="2">Mastered (2)</option>
+                <option value="3">Relearning (3)</option>
+              </select>
+            </div>
           </div>
         </div>
 
@@ -523,7 +525,149 @@ export const CardManagerModal: React.FC<CardManagerModalProps> = ({
               No cards found matching your search or filters.
             </div>
           ) : (
-            <table className="w-full text-left border-collapse">
+            <div className="w-full">
+              {/* Mobile Stacked Cards List (< sm) */}
+              <div className="sm:hidden divide-y divide-zinc-800/40">
+                <div className="p-3 bg-zinc-900/90 border-b border-zinc-800/80 flex items-center justify-between text-xs text-zinc-400">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={
+                        selectedWords.size > 0 &&
+                        selectedWords.size === filteredCards.length
+                      }
+                      onChange={handleSelectAll}
+                      className="rounded border-zinc-700 bg-zinc-800 text-amber-500 focus:ring-0"
+                    />
+                    <span>Select All ({filteredCards.length})</span>
+                  </label>
+                </div>
+
+                {filteredCards.map((card) => {
+                  const stateConf = STATE_CONFIG[card.state] || STATE_CONFIG[0];
+                  const isDue = new Date(card.next_review_date) <= new Date();
+
+                  return (
+                    <div
+                      key={card.word}
+                      className="p-3.5 space-y-2.5 hover:bg-zinc-800/20 transition-colors"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex items-center gap-2.5">
+                          <input
+                            type="checkbox"
+                            checked={selectedWords.has(card.word)}
+                            onChange={() => toggleSelectWord(card.word)}
+                            className="rounded border-zinc-700 bg-zinc-800 text-amber-500 focus:ring-0"
+                          />
+                          <div>
+                            <span className="font-semibold text-zinc-100 text-sm">
+                              {card.word}
+                            </span>
+                            <div className="flex items-center gap-1.5 mt-0.5">
+                              <Badge variant={stateConf.badgeVariant}>
+                                {stateConf.label}
+                              </Badge>
+                              <span className="text-[10px] text-zinc-500 font-mono">
+                                {card.reps} reps • {Math.round(card.stability)}d
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-1">
+                          <button
+                            onClick={() => handleMarkAsNew(card.word)}
+                            title="Reset to New"
+                            className="p-1.5 rounded-lg hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200 transition-colors"
+                          >
+                            <RotateCcw size={14} />
+                          </button>
+                          <button
+                            onClick={() => handleMarkAsMastered(card.word)}
+                            title="Mark as Mastered"
+                            className="p-1.5 rounded-lg hover:bg-zinc-800 text-zinc-400 hover:text-emerald-400 transition-colors"
+                          >
+                            <CheckCircle2 size={14} />
+                          </button>
+                          <div className="relative inline-block">
+                            <button
+                              onClick={() =>
+                                setRescheduleWord(
+                                  rescheduleWord === card.word ? null : card.word
+                                )
+                              }
+                              title="Reschedule next review"
+                              className="p-1.5 rounded-lg hover:bg-zinc-800 text-zinc-400 hover:text-sky-400 transition-colors"
+                            >
+                              <Calendar size={14} />
+                            </button>
+                            {rescheduleWord === card.word && (
+                              <div className="absolute right-0 top-full mt-1 w-52 p-3 bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl z-30 space-y-2">
+                                <span className="text-[10px] font-semibold uppercase text-zinc-400 block">
+                                  Reschedule "{card.word}"
+                                </span>
+                                <div className="grid grid-cols-3 gap-1">
+                                  <button
+                                    onClick={() => handleReschedule(card.word, 1)}
+                                    className="px-2 py-1 bg-zinc-800 hover:bg-zinc-700 rounded text-[11px] text-zinc-200"
+                                  >
+                                    +1 Day
+                                  </button>
+                                  <button
+                                    onClick={() => handleReschedule(card.word, 7)}
+                                    className="px-2 py-1 bg-zinc-800 hover:bg-zinc-700 rounded text-[11px] text-zinc-200"
+                                  >
+                                    +7 Days
+                                  </button>
+                                  <button
+                                    onClick={() => handleReschedule(card.word, 30)}
+                                    className="px-2 py-1 bg-zinc-800 hover:bg-zinc-700 rounded text-[11px] text-zinc-200"
+                                  >
+                                    +30 Days
+                                  </button>
+                                </div>
+                                <div className="pt-1 flex gap-1">
+                                  <input
+                                    type="date"
+                                    value={customDueDate}
+                                    onChange={(e) => setCustomDueDate(e.target.value)}
+                                    className="flex-1 bg-zinc-950 border border-zinc-800 rounded px-2 py-1 text-[11px] text-zinc-200"
+                                  />
+                                  <button
+                                    onClick={() => handleCustomReschedule(card.word)}
+                                    disabled={!customDueDate}
+                                    className="px-2 py-1 bg-amber-400/20 text-amber-300 rounded text-[11px] font-medium disabled:opacity-40"
+                                  >
+                                    Set
+                                  </button>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                          <button
+                            onClick={() => handleDelete(card.word)}
+                            title="Delete card"
+                            className="p-1.5 rounded-lg hover:bg-zinc-800 text-zinc-400 hover:text-rose-400 transition-colors"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="text-xs text-zinc-400 flex items-center justify-between pl-6">
+                        <span>Due:</span>
+                        <span className={isDue ? 'text-amber-400 font-medium' : 'text-zinc-400'}>
+                          {new Date(card.next_review_date).toLocaleDateString()} {isDue && '(Due)'}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Desktop Cards Table (>= sm) */}
+              <table className="hidden sm:table w-full text-left border-collapse">
               <thead className="sticky top-0 bg-zinc-900/95 backdrop-blur-sm border-b border-zinc-800/80 text-[11px] font-semibold uppercase tracking-wider text-zinc-500 z-10">
                 <tr>
                   <th className="w-10 px-4 py-3 text-center">
@@ -688,15 +832,16 @@ export const CardManagerModal: React.FC<CardManagerModalProps> = ({
                 })}
               </tbody>
             </table>
+            </div>
           )}
         </div>
 
         {/* Footer info */}
-        <div className="px-6 py-3 border-t border-zinc-800/80 bg-zinc-900/90 flex items-center justify-between text-xs text-zinc-500">
+        <div className="px-4 sm:px-6 py-3 border-t border-zinc-800/80 bg-zinc-900/90 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 text-xs text-zinc-500">
           <span>
-            Showing {filteredCards.length} of {cards.length} total cards
+            Showing {filteredCards.length} of {cards.length} cards
           </span>
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3 sm:gap-4 flex-wrap">
             <span className="flex items-center gap-1.5">
               <span className="w-2 h-2 rounded-full bg-zinc-500" /> New: {cards.filter((c) => c.state === 0).length}
             </span>

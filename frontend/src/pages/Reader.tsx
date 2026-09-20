@@ -697,12 +697,12 @@ export const Reader: React.FC<ReaderProps> = ({
             </div>
           </div>
 
-          <div className="hidden sm:flex items-center gap-2 relative">
-            <Badge variant="gold">
+          <div className="flex items-center gap-2 relative">
+            <Badge variant="gold" className="hidden sm:inline-flex">
               {mastery}% mastery
             </Badge>
 
-            <span className="text-[10px] text-zinc-600">
+            <span className="text-[10px] text-zinc-600 hidden sm:inline">
               {knownWords}/
               {totalWords}
             </span>
@@ -837,14 +837,26 @@ export const Reader: React.FC<ReaderProps> = ({
 
         <main>
           <div className="mb-8">
-            <div className="text-[10px] uppercase tracking-[0.2em] text-amber-400 font-semibold mb-3">
-              {activeChapterIndex +
-                1}{' '}
-              /{' '}
-              {
-                book.chapters
-                  .length
-              }
+            <div className="flex items-center justify-between gap-3 mb-3">
+              <div className="text-[10px] uppercase tracking-[0.2em] text-amber-400 font-semibold">
+                Chapter {activeChapterIndex + 1} of {book.chapters.length}
+              </div>
+
+              {book.chapters.length > 1 && (
+                <div className="lg:hidden">
+                  <select
+                    value={activeChapterIndex}
+                    onChange={(e) => void goToChapter(Number(e.target.value))}
+                    className="bg-zinc-900 border border-zinc-800 rounded-lg text-xs text-zinc-300 py-1 px-2.5 focus:outline-none focus:border-amber-400/50"
+                  >
+                    {book.chapters.map((ch, idx) => (
+                      <option key={ch.id} value={idx}>
+                        {idx + 1}. {ch.title}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
             </div>
 
             <h1 className="font-display text-4xl sm:text-5xl text-zinc-50">
@@ -1046,7 +1058,7 @@ export const Reader: React.FC<ReaderProps> = ({
             RIGHT PANEL
             ==================================================== */}
 
-        <aside className="lg:block">
+        <aside className="hidden lg:block">
           <div className="lg:sticky lg:top-24 space-y-4">
             {selectedSentence && (
               <div className="rounded-2xl border border-amber-400/20 bg-amber-400/[0.04] overflow-hidden">
@@ -1157,6 +1169,104 @@ export const Reader: React.FC<ReaderProps> = ({
           </div>
         </aside>
       </div>
+
+      {/* Mobile Floating Bottom Sheet for Word & Sentence Translation */}
+      {(selectedWord || selectedSentence) && (
+        <div className="lg:hidden fixed inset-0 z-50 flex flex-col justify-end">
+          {/* Backdrop */}
+          <div
+            className="fixed inset-0 bg-black/60 backdrop-blur-sm transition-opacity"
+            onClick={() => {
+              setSelectedWord(null);
+              setSelectedSentence(null);
+              setSelectedSentenceId(null);
+              setSentenceTranslation(null);
+              setTranslationError(null);
+            }}
+          />
+
+          {/* Sheet Container */}
+          <div className="relative w-full max-h-[82vh] overflow-y-auto bg-zinc-950/95 backdrop-blur-2xl border-t border-zinc-800 rounded-t-2xl shadow-2xl p-4 sm:p-5 space-y-4 animate-in slide-in-from-bottom duration-200 pb-8">
+            <div className="flex items-center justify-between pb-2 border-b border-zinc-800/60">
+              <div className="w-10 h-1 bg-zinc-700 rounded-full mx-auto" />
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedWord(null);
+                  setSelectedSentence(null);
+                  setSelectedSentenceId(null);
+                  setSentenceTranslation(null);
+                  setTranslationError(null);
+                }}
+                className="absolute right-4 top-3 p-1.5 rounded-lg text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 transition-colors"
+                aria-label="Close"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            {selectedSentence && (
+              <div className="rounded-2xl border border-amber-400/20 bg-amber-400/[0.04] overflow-hidden">
+                <div className="p-3 border-b border-amber-400/10 flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2">
+                    <Sparkles size={14} className="text-amber-400" />
+                    <span className="text-xs font-semibold text-amber-300">
+                      Sentence translation
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedSentenceId(null);
+                      setSelectedSentence(null);
+                      setSentenceTranslation(null);
+                      setTranslationError(null);
+                    }}
+                    className="p-1 rounded text-zinc-600 hover:text-zinc-200 hover:bg-zinc-800"
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+                <div className="p-3 space-y-2">
+                  <p className="text-sm text-zinc-300 leading-relaxed">
+                    {selectedSentence}
+                  </p>
+                  {translatingSentence && (
+                    <div className="text-xs text-zinc-500">Translating…</div>
+                  )}
+                  {translationError && (
+                    <div className="text-xs text-red-300">{translationError}</div>
+                  )}
+                  {sentenceTranslation && (
+                    <div className="pt-2 border-t border-amber-400/10">
+                      <div className="text-[10px] uppercase tracking-[0.18em] text-amber-400/80 mb-1">
+                        Translation
+                      </div>
+                      <p className="text-sm text-zinc-100 leading-relaxed">
+                        {sentenceTranslation}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {selectedWord && (
+              <WordPanel
+                token={selectedWord}
+                isSaved={savedWords.has(
+                  selectedWord.lemma ||
+                    selectedWord.dictionaryForm ||
+                    selectedWord.surface,
+                )}
+                adding={addingWord}
+                onAdd={handleAddCard}
+                onClose={() => setSelectedWord(null)}
+              />
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 };

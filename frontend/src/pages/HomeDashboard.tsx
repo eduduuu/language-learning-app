@@ -335,10 +335,11 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({ onNavigate }) => {
               </div>
             </div>
 
-            <div className="flex flex-wrap items-center gap-3">
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
               <Button
                 variant="secondary"
                 size="lg"
+                className="w-full sm:w-auto"
                 onClick={() => void handleOpenAbout(activeBook.id)}
               >
                 <Info size={16} />
@@ -346,6 +347,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({ onNavigate }) => {
               </Button>
               <Button
                 size="lg"
+                className="w-full sm:w-auto"
                 onClick={() =>
                   onNavigate?.('reader', { bookId: activeBook.id })
                 }
@@ -573,8 +575,8 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({ onNavigate }) => {
       )}
 
       {aboutBookId !== null && (
-        <div className="fixed inset-0 z-50 bg-zinc-950/80 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
-          <div className="w-full max-w-2xl bg-zinc-950 border border-zinc-800 rounded-2xl p-6 md:p-8 space-y-6 shadow-2xl relative my-8 max-h-[90vh] overflow-y-auto">
+        <div className="fixed inset-0 z-50 bg-zinc-950/80 backdrop-blur-sm flex items-center justify-center p-2 sm:p-4 overflow-y-auto">
+          <div className="w-full max-w-2xl bg-zinc-950 border border-zinc-800 rounded-2xl p-4 sm:p-6 md:p-8 space-y-6 shadow-2xl relative my-8 max-h-[90vh] overflow-y-auto">
             <div className="flex items-start justify-between border-b border-zinc-800 pb-4">
               <div className="flex items-center gap-4">
                 <div className="w-14 h-20 rounded-lg overflow-hidden border border-zinc-800 bg-zinc-900 flex items-center justify-center shrink-0">
