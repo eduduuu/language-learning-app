@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { Layout } from './components/Layout';
 import { AuthModal } from './components/AuthModal';
+import { syncPendingLocalBooks } from './lib/bookSync';
 
 import { HomeDashboard } from './pages/HomeDashboard';
 import { Reader } from './pages/Reader';
@@ -31,10 +32,17 @@ export const AppContent: React.FC = () => {
   const [selectedBookId, setSelectedBookId] =
     useState<string | null>(null);
 
+  useEffect(() => {
+    if (user) {
+      void syncPendingLocalBooks();
+    }
+  }, [user]);
+
   const navigate = (
     tab: AppTab,
     params?: NavigationParams
   ) => {
+
     if (params?.bookId) {
       setSelectedBookId(params.bookId);
     }

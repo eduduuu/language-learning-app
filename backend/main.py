@@ -53,6 +53,17 @@ app.include_router(dictionary_router)
 app.include_router(bsky_router)
 app.include_router(reading_progress_router)
 
+from fastapi import Request
+from fastapi.responses import JSONResponse
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    return JSONResponse(
+        status_code=500,
+        content={"detail": str(exc)},
+    )
+
+
 # Support both GET and HEAD for Render's health checks
 @app.api_route("/", methods=["GET", "HEAD"], tags=["Health"])
 @app.api_route("/health", methods=["GET", "HEAD"], tags=["Health"])

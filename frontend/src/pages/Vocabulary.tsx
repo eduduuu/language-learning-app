@@ -20,6 +20,8 @@ import {
   type SavedBook,
   type VocabWordDetail,
 } from '../lib/api';
+import { syncPendingLocalBooks } from '../lib/bookSync';
+
 
 import {
   Badge,
@@ -210,14 +212,26 @@ export const Vocabulary: React.FC = () => {
           return;
         }
 
-        setBooks(remoteResult);
+        let finalRemote = remoteResult;
+        // If there are local books that haven't been registered in Supabase yet, auto-sync them
+        if (localResult.length > 0 && remoteResult.length === 0) {
+          try {
+            await syncPendingLocalBooks();
+            finalRemote = await getBooks();
+          } catch (syncErr) {
+            console.warn('Could not auto-sync local books to backend:', syncErr);
+          }
+        }
+
+        setBooks(finalRemote);
         setLocalBooks(localResult);
 
-        if (remoteResult.length > 0) {
+        if (finalRemote.length > 0) {
           setSelectedBookId(
-            remoteResult[0].id,
+            finalRemote[0].id,
           );
         }
+
 
         if (localResult.length > 0) {
           setSelectedLocalBookId(
