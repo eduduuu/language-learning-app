@@ -9,6 +9,7 @@ ebooklib>=0.18
 beautifulsoup4>=4.12.0
 fugashi>=1.3.0
 unidic-lite>=1.0.8
-fsrs
-google-generativeai
+fsrs>=6.0.0
+google-genai>=2.23.0
 httpx
+slowapi>=0.1.10

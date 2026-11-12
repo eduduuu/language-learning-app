@@ -127,20 +127,22 @@ export const Layout: React.FC<LayoutProps> = ({
             <span className="absolute -inset-1 rounded-2xl bg-amber-400/10 blur-md -z-10" />
           </div>
           <div className="min-w-0">
-            <h1 className="font-display text-[19px] leading-none text-zinc-50 truncate">
-              Context
+            <h1 className="font-display text-[19px] leading-none text-zinc-50 truncate flex items-center gap-1.5">
+              Bunmyaku
+              <span className="text-[11px] text-amber-400 font-normal">文脈</span>
             </h1>
             <p className="text-[10px] tracking-[0.22em] uppercase text-zinc-500 mt-1">
-              Reader
+              Japanese in Context
             </p>
           </div>
+
         </div>
 
         {/* Nav items */}
         <nav className="flex-1 overflow-y-auto px-3 pb-4 space-y-6">
           {NAV_GROUPS.map((group) => (
             <div key={group.label}>
-              <div className="px-3 mb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-600">
+              <div className="px-3 mb-2 text-[11px] font-semibold uppercase tracking-[0.15em] text-zinc-600">
                 {group.label}
               </div>
               <div className="space-y-0.5">
@@ -190,10 +192,11 @@ export const Layout: React.FC<LayoutProps> = ({
           <div className="grid place-items-center w-7 h-7 rounded-lg bg-amber-400/10 ring-1 ring-amber-400/30 text-amber-400">
             <BookOpen size={14} strokeWidth={2.2} />
           </div>
-          <span className="font-display text-base font-semibold text-zinc-100 tracking-tight">
-            Context Reader
+          <span className="font-display text-base font-semibold text-zinc-100 tracking-tight flex items-center gap-1.5">
+            Bunmyaku <span className="text-xs text-amber-400 font-normal">文脈</span>
           </span>
         </div>
+
 
         <button
           onClick={() => setMobileDrawerOpen(true)}
@@ -239,7 +242,7 @@ export const Layout: React.FC<LayoutProps> = ({
             <nav className="flex-1 overflow-y-auto space-y-5 py-2">
               {NAV_GROUPS.map((group) => (
                 <div key={group.label}>
-                  <div className="px-3 mb-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-600">
+                  <div className="px-3 mb-1.5 text-[11px] font-semibold uppercase tracking-[0.15em] text-zinc-600">
                     {group.label}
                   </div>
                   <div className="space-y-1">
@@ -289,15 +292,6 @@ export const Layout: React.FC<LayoutProps> = ({
           4. MAIN VIEWPORT
           ========================================================= */}
       <main className="relative flex-1 overflow-y-auto pt-14 md:pt-0 pb-16 md:pb-0">
-        {/* Ambient background glow */}
-        <div
-          aria-hidden
-          className="pointer-events-none fixed inset-0 -z-0 overflow-hidden"
-        >
-          <div className="absolute -top-40 left-1/2 -translate-x-1/2 w-[900px] h-[500px] rounded-full bg-amber-400/[0.035] blur-[120px]" />
-          <div className="absolute top-1/3 -right-40 w-[500px] h-[500px] rounded-full bg-indigo-500/[0.03] blur-[120px]" />
-        </div>
-
         <div className="relative z-10 p-4 sm:p-6 lg:p-10">
           <div className="max-w-6xl mx-auto">{children}</div>
         </div>
@@ -315,7 +309,7 @@ export const Layout: React.FC<LayoutProps> = ({
               key={item.id}
               onClick={() => handleTabClick(item.id)}
               className={cx(
-                'flex flex-col items-center justify-center flex-1 py-1.5 rounded-lg transition-colors relative',
+                'flex flex-col items-center justify-center flex-1 py-2 rounded-lg transition-colors relative min-h-[48px]',
                 active ? 'text-amber-400' : 'text-zinc-500 hover:text-zinc-300'
               )}
             >
@@ -324,7 +318,7 @@ export const Layout: React.FC<LayoutProps> = ({
                 {item.label}
               </span>
               {active && (
-                <span className="absolute bottom-1 w-1 h-1 rounded-full bg-amber-400" />
+                <span className="absolute -top-0.5 w-5 h-[3px] rounded-full bg-amber-400" />
               )}
             </button>
           );

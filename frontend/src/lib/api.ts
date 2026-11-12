@@ -35,6 +35,29 @@ api.interceptors.request.use(
   },
 );
 
+api.interceptors.response.use(
+  (response) => response,
+  async (error) => {
+    const originalRequest = error.config;
+    if (error.response?.status === 401 && !originalRequest?._retry) {
+      originalRequest._retry = true;
+      try {
+        const { data: { session } } = await supabase.auth.refreshSession();
+        if (session?.access_token) {
+          originalRequest.headers.set('Authorization', `Bearer ${session.access_token}`);
+          if (session.user?.id) {
+            originalRequest.headers.set('x-user-id', session.user.id);
+          }
+          return api(originalRequest);
+        }
+      } catch (refreshError) {
+        console.warn('Session refresh failed:', refreshError);
+      }
+    }
+    return Promise.reject(error);
+  },
+);
+
 /* ============================================================
    EPUB REGISTRATION
    ============================================================ */
@@ -519,4 +542,72 @@ export async function importAnkiCardsApi(payload: {
     }
   );
   return data;
+}
+
+/* ============================================================
+   READING PROGRESS
+   ============================================================ */
+
+export interface ReadingProgressRecord {
+  id?: string;
+  book_id: string;
+  chapter_key: string;
+  paragraph_index: number;
+  updated_at?: string;
+}
+
+export async function getReadingProgressApi(
+  bookId: string,
+): Promise<ReadingProgressRecord | null> {
+  const { data } = await api.get<ReadingProgressRecord | null>(
+    `/reading/books/${encodeURIComponent(bookId)}/progress`,
+  );
+  return data;
+}
+
+export async function saveReadingProgressApi(
+  bookId: string,
+  chapterKey: string,
+  paragraphIndex: number,
+): Promise<ReadingProgressRecord> {
+  const { data } = await api.put<ReadingProgressRecord>(
+    `/reading/books/${encodeURIComponent(bookId)}/progress`,
+    null,
+    {
+      params: {
+        chapter_key: chapterKey,
+        paragraph_index: paragraphIndex,
+      },
+    },
+  );
+  return data;
+}
+
+/* ============================================================
+   BLUESKY EXAMPLES
+   ============================================================ */
+
+export interface BskyPostItem {
+  uri: string;
+  cid: string;
+  author_handle: string;
+  author_display_name?: string;
+  text: string;
+  indexed_at: string;
+}
+
+export async function fetchBskyExamplePost(
+  word: string,
+  lang: string = 'ja',
+): Promise<BskyPostItem | null> {
+  try {
+    const { data } = await api.post<BskyPostItem>('/bsky/post', {
+      word,
+      lang,
+    });
+    return data;
+  } catch (error) {
+    console.warn('Failed to fetch Bluesky post example:', error);
+    return null;
+  }
 }

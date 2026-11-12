@@ -9,7 +9,8 @@ class UserSettingsResponse(BaseModel):
     max_new_cards_per_day: int
 
 class UserSettingsUpdate(BaseModel):
-    max_new_cards_per_day: Optional[int] = Field(None, ge=1, le=100)
+    max_new_cards_per_day: Optional[int] = Field(None, ge=1, le=250)
+
 
 class AnalyticsOverviewResponse(BaseModel):
     total_books: int

@@ -343,7 +343,7 @@ export const Quiz: React.FC = () => {
   const topWeakTopic = weakTopics.length > 0 ? weakTopics[0] : null;
 
   return (
-    <div className="space-y-10 max-w-6xl">
+    <div className="space-y-8 max-w-6xl">
       <PageHeader
         icon={HelpCircle}
         kicker="Grammar Practice"
@@ -715,7 +715,7 @@ export const Quiz: React.FC = () => {
                 </div>
               </div>
 
-              <h3 className="font-display text-2xl text-zinc-50 leading-snug mt-6 mb-6 whitespace-pre-line">
+              <h3 className="font-jp text-xl sm:text-2xl font-medium text-zinc-50 leading-relaxed mt-6 mb-6 whitespace-pre-line">
                 {questionData.question}
               </h3>
 
@@ -748,7 +748,7 @@ export const Quiz: React.FC = () => {
                       disabled={submitted}
                       className={`w-full text-left p-4 rounded-xl border transition-all duration-150 flex items-center justify-between gap-4 ${style}`}
                     >
-                      <span className="text-sm leading-relaxed">{opt}</span>
+                      <span className="font-jp text-sm leading-relaxed">{opt}</span>
                       {submitted && isCorrect && (
                         <CheckCircle2 size={18} className="text-emerald-400 shrink-0" />
                       )}

@@ -1,9 +1,12 @@
-import os
+from pathlib import Path
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+_BACKEND_DIR = Path(__file__).resolve().parent.parent
+
 class Settings(BaseSettings):
-    PROJECT_NAME: str = "Context Reader API"
+    PROJECT_NAME: str = "Bunmyaku API"
     ENVIRONMENT: str = "development"
+
     
     # Supabase Credentials
     SUPABASE_URL: str
@@ -15,7 +18,7 @@ class Settings(BaseSettings):
     GEMINI_API_KEY: str
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=(str(_BACKEND_DIR / ".env"), ".env"),
         env_file_encoding="utf-8",
         extra="ignore"
     )

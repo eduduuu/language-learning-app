@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Settings as SettingsIcon, CheckCircle2, Layers } from 'lucide-react';
+import { Settings as SettingsIcon, CheckCircle2, Layers, ShieldCheck, FileText, Trash2 } from 'lucide-react';
 import { api } from '../lib/api';
 import {
   Badge,
@@ -12,6 +12,9 @@ import {
   PageHeader,
 } from '../components/ui';
 import { CardManagerModal } from '../components/srs/CardManagerModal';
+import { LegalModal } from '../components/LegalModal';
+import { dbPromise } from '../lib/db';
+
 
 interface UserSettings {
   id: string;
@@ -26,6 +29,9 @@ export const Settings: React.FC = () => {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [showCardManager, setShowCardManager] = useState(false);
+  const [legalModalType, setLegalModalType] = useState<'terms' | 'privacy' | null>(null);
+  const [clearingCache, setClearingCache] = useState(false);
+
 
   useEffect(() => {
     (async () => {
@@ -80,13 +86,14 @@ export const Settings: React.FC = () => {
 
         <form onSubmit={handleSave} className="p-6 space-y-6">
           <div>
-            <Label hint="1 – 100">Max new cards per day</Label>
+            <Label hint="1 – 250">Max new cards per day</Label>
             <Input
               type="number"
               min={1}
-              max={100}
+              max={250}
               value={maxNewCards}
               onChange={(e) => setMaxNewCards(parseInt(e.target.value) || 1)}
+
             />
             <p className="text-xs text-zinc-500 mt-2 leading-relaxed">
               Higher values accelerate vocabulary acquisition but increase review load.
@@ -133,10 +140,72 @@ export const Settings: React.FC = () => {
         </div>
       </Card>
 
+      <Card>
+        <CardHeader
+          title="Privacy & Data Protection (LGPD / GDPR)"
+          subtitle="Manage your personal data, local storage cache, and privacy policies"
+          icon={ShieldCheck}
+        />
+        <div className="p-6 space-y-5">
+          <p className="text-xs text-zinc-400 leading-relaxed">
+            Your reading content and EPUBs are stored locally on your device. We collect only your email and synchronized SRS flashcard state. In accordance with the Brazilian General Data Protection Law (LGPD) and GDPR, you have full ownership and rights over your data.
+          </p>
+
+          <div className="flex flex-wrap items-center gap-3 pt-1">
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => setLegalModalType('privacy')}
+            >
+              <ShieldCheck size={14} />
+              Privacy Policy
+            </Button>
+
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => setLegalModalType('terms')}
+            >
+              <FileText size={14} />
+              Terms of Service
+            </Button>
+
+            <Button
+              variant="secondary"
+              size="sm"
+              disabled={clearingCache}
+              onClick={async () => {
+                if (!window.confirm('Clear local dictionary cache? Offline definitions will be refreshed on demand.')) return;
+                setClearingCache(true);
+                try {
+                  const db = await dbPromise;
+                  await db.clear('dictionary_cache');
+                  alert('Local dictionary cache cleared.');
+                } catch (e) {
+                  console.error('Failed to clear cache:', e);
+                } finally {
+                  setClearingCache(false);
+                }
+              }}
+            >
+              <Trash2 size={14} />
+              {clearingCache ? 'Clearing…' : 'Clear Dictionary Cache'}
+            </Button>
+          </div>
+        </div>
+      </Card>
+
       <CardManagerModal
         isOpen={showCardManager}
         onClose={() => setShowCardManager(false)}
       />
+
+      {legalModalType && (
+        <LegalModal
+          type={legalModalType}
+          onClose={() => setLegalModalType(null)}
+        />
+      )}
     </div>
   );
 };

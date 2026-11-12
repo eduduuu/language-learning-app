@@ -55,7 +55,7 @@ export const Card: React.FC<React.HTMLAttributes<HTMLDivElement>> = ({
 }) => (
   <div
     className={cx(
-      'rounded-2xl border border-zinc-800/80 bg-zinc-900/60 backdrop-blur-[2px]',
+      'rounded-2xl border border-zinc-800/80 bg-zinc-900/60',
       className,
     )}
     {...rest}
@@ -97,12 +97,12 @@ export const PageHeader: React.FC<{
       {kicker && (
         <div className="inline-flex items-center gap-2 text-amber-400/90">
           {Icon && <Icon size={13} strokeWidth={2.2} />}
-          <span className="text-[10.5px] font-semibold uppercase tracking-[0.22em]">
+          <span className="text-[10.5px] font-semibold uppercase tracking-[0.15em]">
             {kicker}
           </span>
         </div>
       )}
-      <h1 className="font-display text-4xl sm:text-[2.75rem] text-zinc-50 leading-[1.05]">
+      <h1 className="font-display text-3xl sm:text-4xl text-zinc-50 leading-[1.05]">
         {title}
       </h1>
       {subtitle && (
@@ -121,7 +121,7 @@ export const Label: React.FC<{
 }> = ({ children, hint, className }) => (
   <label
     className={cx(
-      'block text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-400 mb-2',
+      'block text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-400 mb-2',
       className,
     )}
   >
@@ -201,7 +201,7 @@ export const Slider: React.FC<{
 }> = ({ value, min, max, step = 1, onChange, label, display }) => (
   <div>
     <div className="flex justify-between items-baseline mb-2">
-      <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-400">
+      <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-400">
         {label}
       </span>
       <span className="text-xs font-mono text-amber-400 tabular-nums">
@@ -281,7 +281,7 @@ export const Badge: React.FC<{
 }> = ({ children, variant = 'default', className }) => (
   <span
     className={cx(
-      'inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[10px] font-semibold uppercase tracking-wider',
+      'inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[10.5px] font-semibold uppercase tracking-wider',
       variant === 'default' && 'bg-zinc-800 text-zinc-300 border border-zinc-700/80',
       variant === 'gold' && 'bg-amber-400/10 text-amber-300 border border-amber-400/20',
       variant === 'success' &&

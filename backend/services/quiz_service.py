@@ -1,5 +1,5 @@
 from typing import Dict, Any, Optional
-from core.llm.groq_adapter import GroqAdapter
+from core.llm.fallback_adapter import FallbackLLMAdapter
 from core.grammar import get_grammar_engine
 from schemas.quiz import (
     QuizGenerateRequest,
@@ -11,7 +11,7 @@ from repositories.quiz_repository import QuizRepository
 
 class QuizService:
     def __init__(self):
-        self.llm = GroqAdapter()
+        self.llm = FallbackLLMAdapter()
 
     async def generate_quiz(
         self,

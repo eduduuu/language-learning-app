@@ -561,7 +561,7 @@ export const CardManagerModal: React.FC<CardManagerModalProps> = ({
                             className="rounded border-zinc-700 bg-zinc-800 text-amber-500 focus:ring-0"
                           />
                           <div>
-                            <span className="font-semibold text-zinc-100 text-sm">
+                            <span className="font-jp font-semibold text-zinc-100 text-base">
                               {card.word}
                             </span>
                             <div className="flex items-center gap-1.5 mt-0.5">
@@ -579,16 +579,16 @@ export const CardManagerModal: React.FC<CardManagerModalProps> = ({
                           <button
                             onClick={() => handleMarkAsNew(card.word)}
                             title="Reset to New"
-                            className="p-1.5 rounded-lg hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200 transition-colors"
+                            className="p-2.5 rounded-lg min-w-[36px] min-h-[36px] flex items-center justify-center hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200 transition-colors"
                           >
-                            <RotateCcw size={14} />
+                            <RotateCcw size={15} />
                           </button>
                           <button
                             onClick={() => handleMarkAsMastered(card.word)}
                             title="Mark as Mastered"
-                            className="p-1.5 rounded-lg hover:bg-zinc-800 text-zinc-400 hover:text-emerald-400 transition-colors"
+                            className="p-2.5 rounded-lg min-w-[36px] min-h-[36px] flex items-center justify-center hover:bg-zinc-800 text-zinc-400 hover:text-emerald-400 transition-colors"
                           >
-                            <CheckCircle2 size={14} />
+                            <CheckCircle2 size={15} />
                           </button>
                           <div className="relative inline-block">
                             <button
@@ -598,9 +598,9 @@ export const CardManagerModal: React.FC<CardManagerModalProps> = ({
                                 )
                               }
                               title="Reschedule next review"
-                              className="p-1.5 rounded-lg hover:bg-zinc-800 text-zinc-400 hover:text-sky-400 transition-colors"
+                              className="p-2.5 rounded-lg min-w-[36px] min-h-[36px] flex items-center justify-center hover:bg-zinc-800 text-zinc-400 hover:text-sky-400 transition-colors"
                             >
-                              <Calendar size={14} />
+                              <Calendar size={15} />
                             </button>
                             {rescheduleWord === card.word && (
                               <div className="absolute right-0 top-full mt-1 w-52 p-3 bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl z-30 space-y-2">
@@ -648,9 +648,9 @@ export const CardManagerModal: React.FC<CardManagerModalProps> = ({
                           <button
                             onClick={() => handleDelete(card.word)}
                             title="Delete card"
-                            className="p-1.5 rounded-lg hover:bg-zinc-800 text-zinc-400 hover:text-rose-400 transition-colors"
+                            className="p-2.5 rounded-lg min-w-[36px] min-h-[36px] flex items-center justify-center hover:bg-rose-500/10 text-zinc-500 hover:text-rose-400 transition-colors"
                           >
-                            <Trash2 size={14} />
+                            <Trash2 size={15} />
                           </button>
                         </div>
                       </div>
@@ -708,7 +708,7 @@ export const CardManagerModal: React.FC<CardManagerModalProps> = ({
                         />
                       </td>
 
-                      <td className="px-4 py-3 font-medium text-zinc-100 text-sm">
+                      <td className="px-4 py-3 font-jp font-medium text-zinc-100 text-sm">
                         {card.word}
                       </td>
 

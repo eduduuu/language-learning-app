@@ -106,7 +106,8 @@ class SRSRepository:
         stability: float,
         reps: int,
         lapses: int,
-        next_review_date: datetime
+        next_review_date: datetime,
+        step_count: Optional[int] = None,
     ) -> Dict[str, Any]:
 
         data = {
@@ -133,6 +134,7 @@ class SRSRepository:
             )
             .execute()
         )
+
 
         return response.data[0]
 
@@ -222,7 +224,19 @@ class SRSRepository:
         return response.data or []
 
     @staticmethod
+    def count_user_cards(user_id: str, language: str = "japanese") -> int:
+        response = (
+            supabase.table("srs_cards")
+            .select("id", count="exact")
+            .eq("user_id", user_id)
+            .eq("language", language)
+            .execute()
+        )
+        return response.count or len(response.data or [])
+
+    @staticmethod
     def get_user_vocabulary(
+
         user_id: str,
         language: str
     ) -> List[Dict[str, Any]]:
@@ -456,21 +470,24 @@ class SRSRepository:
             return 0
 
         now = datetime.now(timezone.utc)
-        count = 0
+        payloads: List[Dict[str, Any]] = []
+        seen_words: set = set()
 
         for item in cards:
             word = item.get("word", "").strip()
-            if not word:
+            if not word or word in seen_words:
                 continue
+            seen_words.add(word)
 
             if import_progress and item.get("next_review_date"):
                 due_val = item["next_review_date"]
                 due_str = due_val.isoformat() if hasattr(due_val, "isoformat") else str(due_val)
-                state_val = item.get("state", 0)
-                reps_val = item.get("reps", 0)
-                lapses_val = item.get("lapses", 0)
-                stability_val = item.get("stability", 0.0)
-                diff_val = item.get("difficulty", 0.0)
+                state_val = int(item.get("state", 0))
+                reps_val = int(item.get("reps", 0))
+                lapses_val = int(item.get("lapses", 0))
+                stability_val = float(item.get("stability", 0.0))
+                diff_val = float(item.get("difficulty", 0.0))
+                step_val = int(item.get("step_count", 0))
             else:
                 due_str = now.isoformat()
                 state_val = 0
@@ -478,8 +495,9 @@ class SRSRepository:
                 lapses_val = 0
                 stability_val = 0.0
                 diff_val = 0.0
+                step_val = 0
 
-            payload = {
+            payloads.append({
                 "user_id": user_id,
                 "word": word,
                 "language": language,
@@ -489,16 +507,27 @@ class SRSRepository:
                 "reps": reps_val,
                 "lapses": lapses_val,
                 "next_review_date": due_str,
-            }
+            })
 
+
+        count = 0
+        chunk_size = 200
+        for i in range(0, len(payloads), chunk_size):
+            chunk = payloads[i:i + chunk_size]
             try:
-                existing = SRSRepository.get_card(user_id, word, language)
-                if existing:
-                    supabase.table("srs_cards").update(payload).eq("id", existing["id"]).execute()
-                else:
-                    supabase.table("srs_cards").insert(payload).execute()
-                count += 1
+                res = (
+                    supabase.table("srs_cards")
+                    .upsert(chunk, on_conflict="user_id,word,language")
+                    .execute()
+                )
+                count += len(res.data or chunk)
             except Exception:
-                continue
+                # Fallback to individual items if a chunk fails
+                for p in chunk:
+                    try:
+                        supabase.table("srs_cards").upsert(p, on_conflict="user_id,word,language").execute()
+                        count += 1
+                    except Exception:
+                        pass
 
         return count

@@ -767,7 +767,7 @@ export const Vocabulary: React.FC = () => {
     };
 
   return (
-    <div className="space-y-10 max-w-7xl">
+    <div className="space-y-8 max-w-7xl">
       <PageHeader
         icon={Brain}
         kicker="Study"
@@ -1231,7 +1231,7 @@ export const Vocabulary: React.FC = () => {
 
                   {card.format === 'single_word' ? (
                     <div className="flex-1 flex flex-col items-center justify-center min-h-[140px] text-center">
-                      <span className="font-display text-5xl sm:text-6xl font-bold text-amber-300 tracking-wide mb-3">
+                      <span className="font-jp text-5xl sm:text-6xl font-bold text-amber-300 tracking-wide mb-3">
                         {card.words[0]}
                       </span>
                       {showAnswer && card.word_details[0]?.reading && (
@@ -1242,7 +1242,7 @@ export const Vocabulary: React.FC = () => {
                     </div>
                   ) : (
                     <div className="flex-1 grid place-items-center min-h-[140px]">
-                      <p className="font-display text-3xl sm:text-[2.5rem] leading-[1.35] text-zinc-50 text-center max-w-2xl tracking-tight">
+                      <p className="font-jp text-2xl sm:text-3xl leading-[1.6] text-zinc-50 text-center max-w-2xl">
                         {renderHighlightedSentence(
                           card.sentence,
                           card.word_details,

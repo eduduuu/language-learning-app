@@ -9,6 +9,12 @@ export interface WordLookupRecord {
   lastLookedUpAt: string;
 }
 
+export interface CachedDictionaryRecord {
+  word: string;
+  entries: any[];
+  cachedAt: string;
+}
+
 interface ContextReaderDB extends DBSchema {
   books: {
     key: string;
@@ -33,6 +39,11 @@ interface ContextReaderDB extends DBSchema {
     value: WordLookupRecord;
   };
 
+  dictionary_cache: {
+    key: string;
+    value: CachedDictionaryRecord;
+  };
+
   meta: {
     key: string;
     value: string;
@@ -40,7 +51,7 @@ interface ContextReaderDB extends DBSchema {
 }
 
 const DB_NAME = 'context-reader';
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 
 export const dbPromise = openDB<ContextReaderDB>(DB_NAME, DB_VERSION, {
   upgrade(db) {
@@ -59,6 +70,10 @@ export const dbPromise = openDB<ContextReaderDB>(DB_NAME, DB_VERSION, {
 
     if (!db.objectStoreNames.contains('word_lookups')) {
       db.createObjectStore('word_lookups');
+    }
+
+    if (!db.objectStoreNames.contains('dictionary_cache')) {
+      db.createObjectStore('dictionary_cache');
     }
 
     if (!db.objectStoreNames.contains('meta')) {

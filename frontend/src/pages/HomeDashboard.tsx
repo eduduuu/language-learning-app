@@ -38,6 +38,7 @@ import {
   listLocalBooks,
   updateLocalBookStatus,
 } from '../lib/localBookStore';
+import { syncPendingLocalBooks } from '../lib/bookSync';
 import type { BookLanguage, BookStatus, BookSummary, LocalBook } from '../types/book';
 
 interface AnalyticsData {
@@ -48,11 +49,39 @@ interface AnalyticsData {
   current_streak: number;
 }
 
+export const SAMPLE_PUBLIC_DOMAIN_BOOKS = [
+  {
+    title: '走れメロス',
+    author: '太宰治 (Osamu Dazai)',
+    level: 'JLPT N3-N2',
+    path: '/samples/hashire_merosu.epub',
+    description: 'A classic tale of friendship, sacrifice, and honor in ancient Syracuse.',
+    time: '~15 min read',
+  },
+  {
+    title: '注文の多い料理店',
+    author: '宮沢賢治 (Kenji Miyazawa)',
+    level: 'JLPT N4-N3',
+    path: '/samples/chumon_no_ryoriten.epub',
+    description: 'Two gentlemen wander into a mysterious mountain restaurant with peculiar rules.',
+    time: '~10 min read',
+  },
+  {
+    title: '坊っちゃん',
+    author: '夏目漱石 (Natsume Soseki)',
+    level: 'JLPT N3',
+    path: '/samples/bocchan.epub',
+    description: 'The energetic adventures of a rebellious young math teacher from Tokyo.',
+    time: '~12 min read',
+  },
+];
+
 interface HomeDashboardProps {
   onNavigate?: (tab: string, params?: { bookId?: string }) => void;
 }
 
 export const HomeDashboard: React.FC<HomeDashboardProps> = ({ onNavigate }) => {
+
   const [books, setBooks] = useState<BookSummary[]>([]);
   const [analytics, setAnalytics] = useState<AnalyticsData | null>(null);
   const [search, setSearch] = useState('');
@@ -200,6 +229,9 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({ onNavigate }) => {
         (message) => setImportProgress(message)
       );
 
+      // Trigger background sync to register book with backend
+      void syncPendingLocalBooks();
+
       await refreshBooks();
 
       setDrawerOpen(false);
@@ -221,6 +253,38 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({ onNavigate }) => {
     }
   };
 
+  const handleLoadSample = async (samplePath: string, sampleTitle: string) => {
+    if (importing) return;
+    setImporting(true);
+    setImportProgress(`Fetching "${sampleTitle}"…`);
+    try {
+      const res = await fetch(samplePath);
+      if (!res.ok) {
+        throw new Error(`Failed to load ${sampleTitle}.`);
+      }
+      const blob = await res.blob();
+      const file = new File([blob], `${sampleTitle}.epub`, { type: 'application/epub+zip' });
+      setImportProgress('Parsing chapters and Japanese tokens…');
+      const created = await createLocalBookFromEpub(
+        sampleTitle,
+        'japanese',
+        file,
+        (msg) => setImportProgress(msg)
+      );
+      void syncPendingLocalBooks();
+      await refreshBooks();
+      setDrawerOpen(false);
+      setImportProgress(null);
+      onNavigate?.('reader', { bookId: created.id });
+    } catch (err) {
+      console.error('Failed to load sample book:', err);
+      alert((err as Error).message || 'Failed to load sample book.');
+    } finally {
+      setImporting(false);
+    }
+  };
+
+
   const handleDelete = async (
     bookId: string,
     event: React.MouseEvent
@@ -232,8 +296,18 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({ onNavigate }) => {
     }
 
     try {
+      // Find backendId if synced so we can free the free-tier book limit in Supabase
+      const fullBook = await getLocalBook(bookId);
+      const backendId = fullBook?.summary.backendId;
+
       await deleteLocalBook(bookId);
       await refreshBooks();
+
+      if (backendId) {
+        api.delete(`/epub/books/${backendId}`).catch((err) => {
+          console.warn('Could not remove book from backend:', err);
+        });
+      }
     } catch (error) {
       console.error('Failed to delete local book:', error);
     }
@@ -252,7 +326,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({ onNavigate }) => {
   };
 
   return (
-    <div className="space-y-10 max-w-7xl mx-auto">
+    <div className="space-y-8 max-w-7xl mx-auto">
       <PageHeader
         icon={BookOpen}
         kicker="Library"
@@ -360,7 +434,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({ onNavigate }) => {
         </Card>
       )}
 
-      <div className="grid md:grid-cols-3 gap-4">
+      <div className="flex gap-4 overflow-x-auto pb-2 -mx-4 px-4 sm:mx-0 sm:px-0 sm:overflow-x-visible sm:grid sm:grid-cols-3 snap-x snap-mandatory sm:snap-none">
         <PracticeCard
           label="Daily Review"
           title={`${analytics?.cards_due_today ?? 0} cards due`}
@@ -426,22 +500,67 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({ onNavigate }) => {
             Loading library…
           </div>
         ) : filteredBooks.length === 0 ? (
-          <Card className="p-12 text-center">
-            <Book size={28} className="mx-auto text-zinc-700" />
-            <h3 className="text-sm font-semibold text-zinc-200 mt-4">
-              No books found
-            </h3>
-            <p className="text-xs text-zinc-600 mt-2">
-              Add a book to start building your local library.
-            </p>
-            <div className="mt-5">
-              <Button onClick={() => setDrawerOpen(true)}>
-                <Plus size={14} />
-                Add Book
-              </Button>
+          <div className="space-y-6">
+            <Card className="p-8 text-center border-dashed border-zinc-800">
+              <Book size={28} className="mx-auto text-zinc-600" />
+              <h3 className="text-base font-semibold text-zinc-200 mt-3">
+                No books in your library yet
+              </h3>
+              <p className="text-xs text-zinc-500 mt-1 max-w-md mx-auto">
+                Upload your own EPUB or choose one of our free public domain Japanese classics below to start reading immediately.
+              </p>
+              <div className="mt-4 flex justify-center gap-3">
+                <Button onClick={() => setDrawerOpen(true)}>
+                  <Plus size={14} />
+                  Upload EPUB
+                </Button>
+              </div>
+            </Card>
+
+            <div>
+              <div className="flex items-center gap-2 mb-3">
+                <Sparkles size={16} className="text-amber-400" />
+                <h3 className="text-sm font-semibold text-zinc-200">
+                  Quick Start with Public Domain Classics (青空文庫)
+                </h3>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {SAMPLE_PUBLIC_DOMAIN_BOOKS.map((sample) => (
+                  <Card key={sample.title} className="p-5 flex flex-col justify-between hover:border-zinc-700 transition-colors">
+                    <div>
+                      <div className="flex items-center justify-between gap-2">
+                        <Badge variant="gold">{sample.level}</Badge>
+                        <span className="text-[11px] text-zinc-500">{sample.time}</span>
+                      </div>
+
+                      <h4 className="font-display text-lg text-zinc-100 mt-3">
+                        {sample.title}
+                      </h4>
+                      <p className="text-xs text-amber-400/80 font-medium mt-0.5">
+                        {sample.author}
+                      </p>
+                      <p className="text-xs text-zinc-400 mt-2 leading-relaxed">
+                        {sample.description}
+                      </p>
+                    </div>
+                    <div className="mt-5 pt-4 border-t border-zinc-900 flex items-center justify-between">
+                      <span className="text-[11px] text-zinc-600">Free • Public Domain</span>
+                      <Button
+                        size="sm"
+                        disabled={importing}
+                        onClick={() => void handleLoadSample(sample.path, sample.title)}
+                      >
+                        <BookOpen size={13} />
+                        Read Now
+                      </Button>
+                    </div>
+                  </Card>
+                ))}
+              </div>
             </div>
-          </Card>
+          </div>
         ) : (
+
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-5">
             {filteredBooks.map((book) => (
               <BookCard
@@ -557,7 +676,36 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({ onNavigate }) => {
                   The EPUB is parsed and stored on this device. Only learning metadata and vocabulary are synchronized with the backend.
                 </p>
               </div>
+
+              <div className="pt-2 border-t border-zinc-900">
+                <div className="text-xs font-semibold text-zinc-400 mb-2.5 flex items-center gap-1.5">
+                  <Sparkles size={12} className="text-amber-400" />
+                  Or load a Public Domain Classic:
+                </div>
+                <div className="space-y-2">
+                  {SAMPLE_PUBLIC_DOMAIN_BOOKS.map((sample) => (
+                    <button
+                      key={sample.title}
+                      type="button"
+                      disabled={importing}
+                      onClick={() => void handleLoadSample(sample.path, sample.title)}
+                      className="w-full text-left p-2.5 rounded-lg border border-zinc-800/80 hover:border-amber-400/30 hover:bg-zinc-900/50 transition-colors flex items-center justify-between group disabled:opacity-50"
+                    >
+                      <div>
+                        <div className="text-xs font-medium text-zinc-200 group-hover:text-amber-300">
+                          {sample.title} <span className="text-zinc-500 font-normal">({sample.author.split(' ')[0]})</span>
+                        </div>
+                        <div className="text-[10px] text-zinc-500 mt-0.5">
+                          {sample.level} • {sample.time}
+                        </div>
+                      </div>
+                      <BookOpen size={13} className="text-zinc-500 group-hover:text-amber-400" />
+                    </button>
+                  ))}
+                </div>
+              </div>
             </div>
+
 
             <div className="pt-5 border-t border-zinc-800">
               <Button
@@ -879,7 +1027,7 @@ const StatCard: React.FC<{
         {icon}
       </div>
       <div>
-        <div className="text-[10px] uppercase tracking-wider font-semibold text-zinc-600">
+        <div className="text-[10px] uppercase tracking-[0.12em] font-semibold text-zinc-600">
           {label}
         </div>
         <div className="text-lg font-semibold text-zinc-100 mt-0.5">
@@ -898,11 +1046,11 @@ const PracticeCard: React.FC<{
   action: string;
   onClick: () => void;
 }> = ({ label, title, description, icon, action, onClick }) => (
-  <Card className="p-5 flex flex-col justify-between min-h-[180px]">
+  <Card className="p-5 flex flex-col justify-between min-h-[180px] min-w-[260px] sm:min-w-0 snap-center shrink-0 sm:shrink">
     <div>
       <div className="flex items-center gap-2 text-amber-400">
         {icon}
-        <span className="text-[10px] uppercase tracking-wider font-semibold">
+        <span className="text-[10px] uppercase tracking-[0.12em] font-semibold">
           {label}
         </span>
       </div>

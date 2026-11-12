@@ -122,7 +122,9 @@ class SRSReviewRequest(BaseModel):
         "very_hard",
         "hard",
         "ok",
-        "good"
+        "good",
+        "easy",
+        "again"
     ]
 
 

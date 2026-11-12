@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { BarChart3, Book, Brain, Clock, Target } from 'lucide-react';
+import { BarChart3, Book, Brain, CheckCircle2, Clock, Flame, Target } from 'lucide-react';
 import { api } from '../lib/api';
 import {
   Badge,
@@ -13,6 +13,8 @@ interface AnalyticsOverview {
   total_books: number;
   total_cards: number;
   cards_due_today: number;
+  words_mastered?: number;
+  current_streak?: number;
   quiz_total_attempts: number;
   quiz_accuracy_rate: number;
   grammar_theme_breakdown: Record<
@@ -37,12 +39,12 @@ const Kpi: React.FC<{
   return (
     <Card className="p-5 group transition-colors hover:border-zinc-700">
       <div className="flex items-center justify-between mb-5">
-        <span className="text-[10.5px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
+        <span className="text-[10.5px] font-semibold uppercase tracking-[0.15em] text-zinc-500">
           {label}
         </span>
         <Icon size={15} className={accentClass} strokeWidth={2} />
       </div>
-      <div className="font-display text-[2.5rem] leading-none text-zinc-50 tabular-nums">
+      <div className="text-[2.2rem] leading-none text-zinc-50 font-semibold tabular-nums">
         {value}
       </div>
       <p className="text-xs text-zinc-500 mt-2">{sub}</p>
@@ -81,13 +83,27 @@ export const Analytics: React.FC = () => {
         subtitle="A precise view of vocabulary progression and grammar mastery over time."
       />
 
-      <section className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <section className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
         {loading ? (
-          Array.from({ length: 4 }).map((_, i) => (
+          Array.from({ length: 6 }).map((_, i) => (
             <Skeleton key={i} className="h-[148px]" />
           ))
         ) : (
           <>
+            <Kpi
+              icon={Flame}
+              label="Streak"
+              value={`${data?.current_streak ?? 0}d`}
+              sub="consecutive days"
+              accent="amber"
+            />
+            <Kpi
+              icon={CheckCircle2}
+              label="Mastered"
+              value={data?.words_mastered ?? 0}
+              sub="memorized words"
+              accent="emerald"
+            />
             <Kpi icon={Book} label="Library" value={data?.total_books ?? 0} sub="books uploaded" />
             <Kpi icon={Brain} label="Vocabulary" value={data?.total_cards ?? 0} sub="cards in rotation" />
             <Kpi

@@ -11,14 +11,16 @@ import {
   Check,
   ChevronLeft,
   ChevronRight,
+  ExternalLink,
+  Globe,
   Headphones,
   Languages,
   Plus,
   Settings2,
   Sparkles,
-  Volume2,
   X,
 } from 'lucide-react';
+
 
 import {
   Badge,
@@ -35,6 +37,7 @@ import {
 
 import {
   lookupJapanese,
+  batchLookupJapanese,
   type DictionaryEntry,
 } from '../lib/dictionary/japanese';
 
@@ -48,6 +51,9 @@ import {
   getSRSCards,
   recordWordLookupApi,
   translateSentence,
+  saveReadingProgressApi,
+  fetchBskyExamplePost,
+  type BskyPostItem,
   type SRSCard,
 } from '../lib/api';
 
@@ -365,6 +371,9 @@ export const Reader: React.FC<ReaderProps> = ({
             );
           }
 
+          const pIndexAttr = first.target.getAttribute('data-paragraph-index');
+          const pIndex = pIndexAttr ? parseInt(pIndexAttr, 10) : 0;
+
           saveTimer.current =
             setTimeout(() => {
               updateLocalBookPosition(
@@ -377,6 +386,17 @@ export const Reader: React.FC<ReaderProps> = ({
                   error,
                 );
               });
+
+              const targetBackendId = book?.summary.backendId;
+              if (targetBackendId && !bookId.startsWith('demo-')) {
+                saveReadingProgressApi(
+                  targetBackendId,
+                  chapterId,
+                  pIndex,
+                ).catch((err) => {
+                  console.warn('Could not sync progress to backend:', err);
+                });
+              }
             }, 500);
         },
         {
@@ -425,6 +445,44 @@ export const Reader: React.FC<ReaderProps> = ({
       book,
       activeChapterIndex,
     ]);
+
+  /* ==========================================================
+     PROACTIVE CHAPTER DICTIONARY PRE-FETCH (0ms Lookups)
+     ========================================================== */
+
+  useEffect(() => {
+    if (!activeChapter) return;
+
+    let cancelled = false;
+    const prefetchTimer = setTimeout(() => {
+      if (cancelled) return;
+      const wordsToPrefetch: string[] = [];
+      const seen = new Set<string>();
+
+      for (const p of activeChapter.paragraphs) {
+        for (const s of p.sentences) {
+          for (const t of s.tokens) {
+            if (t.isWordLike && t.surface) {
+              const target = (t.lemma || t.surface).trim();
+              if (target && target.length > 0 && !seen.has(target)) {
+                seen.add(target);
+                wordsToPrefetch.push(target);
+              }
+            }
+          }
+        }
+      }
+
+      if (wordsToPrefetch.length > 0) {
+        void batchLookupJapanese(wordsToPrefetch.slice(0, 100));
+      }
+    }, 400);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(prefetchTimer);
+    };
+  }, [activeChapter]);
 
   /* ==========================================================
      SELECT WORD
@@ -810,10 +868,9 @@ export const Reader: React.FC<ReaderProps> = ({
                         : 'text-zinc-500 hover:text-zinc-200 hover:bg-zinc-900',
                     ].join(' ')}
                   >
-                    <div className="font-medium">
-                      {
-                        chapter.title
-                      }
+                    <div className="font-medium truncate">
+                      <span className="text-amber-400/80 mr-1.5 font-mono text-[11px]">Ch. {index + 1}</span>
+                      {chapter.title}
                     </div>
 
                     <div className="text-[10px] text-zinc-600 mt-1">
@@ -872,7 +929,7 @@ export const Reader: React.FC<ReaderProps> = ({
             </p>
           </div>
 
-          <article className="space-y-7 text-[18px] sm:text-[19px] leading-[2.15] text-zinc-200">
+          <article className="font-jp space-y-7 text-[18px] sm:text-[19px] leading-[2.15] text-zinc-200">
             {activeChapter.paragraphs.map(
               (paragraph) => {
                 const firstSentence =
@@ -1186,7 +1243,7 @@ export const Reader: React.FC<ReaderProps> = ({
           />
 
           {/* Sheet Container */}
-          <div className="relative w-full max-h-[82vh] overflow-y-auto bg-zinc-950/95 backdrop-blur-2xl border-t border-zinc-800 rounded-t-2xl shadow-2xl p-4 sm:p-5 space-y-4 animate-in slide-in-from-bottom duration-200 pb-8">
+          <div className="relative w-full max-h-[70vh] overflow-y-auto bg-zinc-950/95 backdrop-blur-2xl border-t border-zinc-800 rounded-t-2xl shadow-2xl p-4 sm:p-5 space-y-4 animate-in slide-in-from-bottom duration-200 pb-8">
             <div className="flex items-center justify-between pb-2 border-b border-zinc-800/60">
               <div className="w-10 h-1 bg-zinc-700 rounded-full mx-auto" />
               <button
@@ -1313,6 +1370,12 @@ const WordPanel: React.FC<
   const [lookupCount, setLookupCount] =
     useState<number>(1);
 
+  const [bskyPost, setBskyPost] =
+    useState<BskyPostItem | null>(null);
+
+  const [loadingBsky, setLoadingBsky] =
+    useState(false);
+
   useEffect(() => {
     const controller =
       new AbortController();
@@ -1322,6 +1385,7 @@ const WordPanel: React.FC<
     setEntries([]);
     setError(null);
     setLoading(true);
+    setBskyPost(null);
 
     // Record word lookup locally in IndexedDB and sync to cloud
     recordWordLookup(lemma, 'japanese')
@@ -1382,7 +1446,7 @@ const WordPanel: React.FC<
       <div className="p-5 border-b border-zinc-800/70">
         <div className="flex items-start justify-between">
           <div>
-            <div className="font-display text-4xl text-zinc-50">
+            <div className="font-jp text-3xl sm:text-4xl font-bold text-zinc-50 tracking-wide">
               {token.surface}
             </div>
 
@@ -1531,37 +1595,40 @@ const WordPanel: React.FC<
           )}
         </div>
 
-        <div className="grid grid-cols-2 gap-2">
+        <div className="space-y-2">
+
           <button
             type="button"
-            className="flex items-center justify-center gap-2 py-2.5 rounded-lg border border-zinc-800 bg-zinc-950 text-zinc-400 hover:text-zinc-100 hover:border-zinc-700 text-xs"
-            onClick={() => {
-              if (
-                'speechSynthesis' in
-                window
-              ) {
-                window.speechSynthesis.cancel();
-
-                window.speechSynthesis.speak(
-                  new SpeechSynthesisUtterance(
-                    token.surface,
-                  ),
-                );
-              }
+            className="flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg border border-zinc-800 bg-zinc-950 text-zinc-400 hover:text-sky-400 hover:border-sky-500/30 text-xs w-full transition-colors"
+            onClick={async () => {
+              setLoadingBsky(true);
+              const target = token.lemma || token.surface;
+              const post = await fetchBskyExamplePost(target);
+              setBskyPost(post);
+              setLoadingBsky(false);
             }}
+            disabled={loadingBsky}
           >
-            <Volume2 size={14} />
-            Listen
+            <Globe size={13} className="text-sky-400" />
+            {loadingBsky ? 'Searching Bluesky…' : 'Find Real-World Example on Bluesky'}
           </button>
 
-          <button
-            type="button"
-            className="flex items-center justify-center gap-2 py-2.5 rounded-lg border border-zinc-800 bg-zinc-950 text-zinc-400 hover:text-zinc-100 hover:border-zinc-700 text-xs"
-            title="Double-click a sentence to translate it"
-          >
-            <Sparkles size={14} />
-            Explain
-          </button>
+          {bskyPost && (
+            <div className="p-3 rounded-lg bg-sky-950/20 border border-sky-800/30 text-xs text-zinc-300 space-y-1">
+              <div className="flex items-center justify-between text-[11px] text-sky-400 font-mono">
+                <span>@{bskyPost.author_handle}</span>
+                <a
+                  href={bskyPost.uri ? `https://bsky.app/profile/${bskyPost.author_handle}/post/${bskyPost.uri.split('/').pop()}` : '#'}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="hover:underline flex items-center gap-1"
+                >
+                  View post <ExternalLink size={10} />
+                </a>
+              </div>
+              <p className="line-clamp-3 text-zinc-200">{bskyPost.text}</p>
+            </div>
+          )}
         </div>
 
         {!isSaved && lookupCount >= 3 && (

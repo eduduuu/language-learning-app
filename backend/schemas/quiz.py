@@ -5,7 +5,7 @@ from datetime import datetime
 
 class QuizGenerateRequest(BaseModel):
     language: str = "japanese"
-    theme: str = Field(..., example="N4 Te-form usage")
+    theme: str = Field(..., examples=["N4 Te-form usage"])
     complexity: int = Field(default=3, ge=1, le=5)
     topic_id: Optional[str] = None
     use_preseeded_only: bool = False
@@ -21,7 +21,7 @@ class QuizQuestionResponse(BaseModel):
     source: str = "llm" # 'preseeded', 'rule_engine', 'llm'
 
 class QuizClozeRequest(BaseModel):
-    sentence: str = Field(..., min_length=5, example="一隻の飛空艇が港湾区画へと入ってきた。")
+    sentence: str = Field(..., min_length=5, examples=["一隻の飛空艇が港湾区画へと入ってきた。"])
     language: str = "japanese"
 
 class QuizClozeResponse(BaseModel):

@@ -1,5 +1,6 @@
 from typing import Dict, Any, List, Optional
 import random
+import uuid
 from core.supabase import supabase
 
 class QuizRepository:
@@ -20,7 +21,11 @@ class QuizRepository:
             "is_correct": is_correct
         }
         if question_id:
-            data["question_id"] = question_id
+            try:
+                valid_uuid = str(uuid.UUID(str(question_id)))
+                data["question_id"] = valid_uuid
+            except (ValueError, TypeError):
+                pass
         response = supabase.table("quiz_logs").insert(data).execute()
         return response.data[0]
 

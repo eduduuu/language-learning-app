@@ -1,5 +1,6 @@
 # Secret Environment Variables
 .env
+backend/.env
 
 # Python Environments & Cache
 .venv/
@@ -7,11 +8,19 @@ venv/
 __pycache__/
 *.pyc
 
-# Node Modules
+# Node Modules & Build Output
 node_modules/
 frontend/node_modules/
+frontend/dist/
 
 # Local testing books
 *.epub
 *.pdf
-frontend/public/dict/
+!frontend/public/samples/*.epub
+
+
+# Temporary dictionary files
+frontend/public/dict/*.tmp
+frontend/public/dict/*.pindex.tmp
+backend/data/*.db-shm
+backend/data/*.db-wal

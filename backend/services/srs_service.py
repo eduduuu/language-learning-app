@@ -6,7 +6,7 @@ from typing import List, Dict, Any
 from fastapi import HTTPException
 from fsrs import Scheduler, Card, Rating, State
 
-from core.llm.groq_adapter import GroqAdapter
+from core.llm.fallback_adapter import FallbackLLMAdapter
 
 from repositories.srs_repository import SRSRepository
 
@@ -81,7 +81,7 @@ JLPT_FALLBACK_VOCAB = {
 class SRSService:
 
     def __init__(self):
-        self.llm = GroqAdapter()
+        self.llm = FallbackLLMAdapter()
         self.fsrs = Scheduler(
             maximum_interval=365
         )
@@ -467,9 +467,11 @@ class SRSService:
 
         rating_map = {
             "very_hard": Rating.Again,
+            "again": Rating.Again,
             "hard": Rating.Hard,
             "ok": Rating.Good,
-            "good": Rating.Good,
+            "good": Rating.Easy,
+            "easy": Rating.Easy,
         }
 
         fsrs_rating = rating_map.get(
@@ -501,12 +503,27 @@ class SRSService:
             except Exception:
                 due = now
 
+            step = existing_card.get("step_count")
+            if step is None and card_state in (State.Learning, State.Relearning):
+                step = existing_card.get("reps") or 1
+
+            last_rev_str = existing_card.get("last_reviewed")
+            last_review = None
+            if last_rev_str:
+                try:
+                    last_review = datetime.fromisoformat(last_rev_str.replace("Z", "+00:00"))
+                except Exception:
+                    last_review = None
+
             card = Card(
                 state=card_state,
+                step=step,
                 difficulty=difficulty,
                 stability=stability,
                 due=due,
+                last_review=last_review,
             )
+
 
             current_reps = existing_card.get(
                 "reps",
@@ -556,6 +573,7 @@ class SRSService:
             stability=scheduled_card.stability,
             reps=new_reps,
             lapses=new_lapses,
+            step_count=scheduled_card.step,
             next_review_date=scheduled_card.due
         )
 
@@ -578,11 +596,22 @@ class SRSService:
                 detail="Word cannot be empty."
             )
 
+        # Check existing card first so we don't block re-adding an already saved word
+        existing = SRSRepository.get_card(user_id=user_id, word=word, language=language)
+        if not existing:
+            total_cards = SRSRepository.count_user_cards(user_id=user_id, language=language)
+            if total_cards >= 250:
+                raise HTTPException(
+                    status_code=403,
+                    detail="Free tier limit reached (250 words in review). Master or archive existing cards to add new ones."
+                )
+
         return SRSRepository.create_new_card(
             user_id=user_id,
             word=word,
             language=language
         )
+
 
     # ========================================================
     # Book mastery

@@ -19,11 +19,12 @@ class EPUBService:
 
         if tier == "free":
             existing = BookRepository.get_book_by_fingerprint(user_id, request.fingerprint)
-            if existing is None and BookRepository.count_user_books(user_id) >= 3:
+            if existing is None and BookRepository.count_user_books(user_id) >= 5:
                 raise HTTPException(
                     status_code=status.HTTP_403_FORBIDDEN,
-                    detail="Free tier limit reached (3 books max). Delete a book to add a new one.",
+                    detail="Free tier limit reached (5 books max). Delete a book to add a new one.",
                 )
+
 
         existing = BookRepository.get_book_by_fingerprint(user_id, request.fingerprint)
 

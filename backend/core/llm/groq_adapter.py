@@ -21,7 +21,8 @@ class GroqAdapter(BaseLLMProvider):
                 {"role": "system", "content": system_instruction},
                 {"role": "user", "content": prompt}
             ],
-            response_format={"type": "json_object"}
+            response_format={"type": "json_object"},
+            max_tokens=500
         )
         
         raw_content = response.choices[0].message.content
@@ -30,6 +31,7 @@ class GroqAdapter(BaseLLMProvider):
     async def generate_text(self, prompt: str) -> str:
         response = await self.client.chat.completions.create(
             model=self.model_name,
-            messages=[{"role": "user", "content": prompt}]
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=500
         )
         return response.choices[0].message.content
