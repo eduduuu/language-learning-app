@@ -260,7 +260,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({ onNavigate }) => {
     try {
       const res = await fetch(samplePath);
       if (!res.ok) {
-        throw new Error(`Failed to load ${sampleTitle}.`);
+        throw new Error(`Failed to load ${sampleTitle}: ${res.status} ${res.statusText}`);
       }
       const blob = await res.blob();
       const file = new File([blob], `${sampleTitle}.epub`, { type: 'application/epub+zip' });

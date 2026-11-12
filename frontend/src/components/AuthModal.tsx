@@ -139,8 +139,19 @@ export function AuthModal({ onClose }: AuthModalProps) {
                 {oauthLoading ? 'Connecting to Google…' : 'Continue with Google'}
               </button>
 
+              <button
+                type="button"
+                onClick={() => {
+                  localStorage.setItem('bunmyaku_demo', 'true');
+                  window.location.reload();
+                }}
+                className="w-full py-2.5 px-4 rounded-xl text-xs font-medium text-zinc-400 hover:text-amber-300 hover:bg-zinc-800/60 border border-zinc-800 transition-colors"
+              >
+                Try Demo Preview (No Login Required) →
+              </button>
+
               <p className="text-[11px] text-zinc-500">
-                Fast & secure • No passwords to remember
+                Instant access • Local-first storage
               </p>
             </div>
           </div>

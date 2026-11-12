@@ -24,3 +24,7 @@ frontend/public/dict/*.tmp
 frontend/public/dict/*.pindex.tmp
 backend/data/*.db-shm
 backend/data/*.db-wal
+
+# Demo Video Recordings
+bunmyaku_demo.*
+demo_recording/

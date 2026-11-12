@@ -86,7 +86,10 @@ export async function requestPersistentStorage(): Promise<boolean> {
   if (!navigator.storage?.persist) return false;
 
   try {
-    return await navigator.storage.persist();
+    const timeoutPromise = new Promise<boolean>((resolve) =>
+      setTimeout(() => resolve(false), 1000)
+    );
+    return await Promise.race([navigator.storage.persist(), timeoutPromise]);
   } catch {
     return false;
   }

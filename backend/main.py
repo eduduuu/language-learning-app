@@ -43,10 +43,11 @@ async def add_security_headers(request: Request, call_next):
 
 # Allowed origins for CORS (Localhost + Vercel + custom domains)
 allowed_origins = [
-
     "http://localhost:5173",
+    "http://localhost:4173",
     "http://localhost:3000",
     "http://127.0.0.1:5173",
+    "http://127.0.0.1:4173",
     "http://127.0.0.1:3000",
 ]
 

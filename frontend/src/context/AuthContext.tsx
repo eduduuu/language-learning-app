@@ -16,12 +16,40 @@ const AuthContext = createContext<AuthContextType>({
   signOut: async () => {},
 });
 
+const DEMO_USER: User = {
+  id: '00000000-0000-0000-0000-000000000001',
+  aud: 'authenticated',
+  role: 'authenticated',
+  email: 'demo@bunmyaku.app',
+  email_confirmed_at: new Date().toISOString(),
+  phone: '',
+  confirmed_at: new Date().toISOString(),
+  last_sign_in_at: new Date().toISOString(),
+  app_metadata: { provider: 'demo' },
+  user_metadata: { full_name: 'Guest Demo' },
+  identities: [],
+  created_at: new Date().toISOString(),
+  updated_at: new Date().toISOString(),
+} as unknown as User;
+
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
 
   useEffect(() => {
+    const isDemo =
+      typeof window !== 'undefined' &&
+      (window.location.search.includes('demo=true') ||
+        window.location.search.includes('demo=1') ||
+        localStorage.getItem('bunmyaku_demo') === 'true');
+
+    if (isDemo) {
+      setUser(DEMO_USER);
+      setLoading(false);
+      return;
+    }
+
     supabase.auth.getSession()
       .then(({ data: { session } }) => {
         setSession(session);
@@ -43,6 +71,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   const signOut = async () => {
+    localStorage.removeItem('bunmyaku_demo');
     await supabase.auth.signOut();
   };
 
